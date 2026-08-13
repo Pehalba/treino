@@ -85,7 +85,18 @@ export function HomePage() {
   const currentWeight = weights[0]?.weight ?? null
   const avgWeight = weightService.sevenDayAverage(weights)
   const oldest = [...weights].sort((a, b) => a.date.localeCompare(b.date))[0]
+  const weightGoal = activeProfile?.weightGoalKg ?? null
   const bulkDelta = currentWeight != null && oldest ? currentWeight - oldest.weight : null
+  const remainingWeight =
+    currentWeight != null && weightGoal != null ? weightGoal - currentWeight : null
+  const weightProgressMax =
+    weightGoal != null && oldest && oldest.weight !== weightGoal
+      ? Math.abs(weightGoal - oldest.weight)
+      : null
+  const weightProgressValue =
+    currentWeight != null && oldest && weightProgressMax
+      ? Math.abs(currentWeight - oldest.weight)
+      : null
   const lastRecords = [...records].sort((a, b) => b.createdAt - a.createdAt).slice(0, 3)
   const lastCompleted = sessions.filter((s) => s.completed)
   const prevVolume = lastCompleted[1]?.totalVolume
@@ -223,6 +234,11 @@ export function HomePage() {
           <Card>
             <p className="text-xs font-semibold tracking-widest text-muted uppercase">Peso atual</p>
             <p className="mt-1 font-display text-3xl">{currentWeight != null ? formatKg(currentWeight) : '—'}</p>
+            {weightGoal != null ? (
+              <p className="text-sm text-muted">Meta: {formatKg(weightGoal)}</p>
+            ) : (
+              <p className="text-sm text-muted">Defina a meta em Perfil.</p>
+            )}
           </Card>
         )
       case 'weekly_weight_avg':
@@ -235,11 +251,30 @@ export function HomePage() {
       case 'bulk_progress':
         return (
           <Card>
-            <p className="text-xs font-semibold tracking-widest text-muted uppercase">Progresso do bulking</p>
+            <p className="text-xs font-semibold tracking-widest text-muted uppercase">Progresso do peso</p>
             <p className="mt-1 font-display text-3xl">
-              {bulkDelta == null ? '—' : `${bulkDelta >= 0 ? '+' : ''}${formatKg(bulkDelta)}`}
+              {remainingWeight == null
+                ? bulkDelta == null
+                  ? '—'
+                  : `${bulkDelta >= 0 ? '+' : ''}${formatKg(bulkDelta)}`
+                : `${remainingWeight >= 0 ? '+' : ''}${formatKg(remainingWeight)}`}
             </p>
-            <p className="text-sm text-muted">Objetivo: {PROFILE_GOAL_LABELS[activeProfile?.goal ?? 'bulking']}</p>
+            {weightGoal != null ? (
+              <p className="text-sm text-muted">
+                {remainingWeight == null
+                  ? `Meta: ${formatKg(weightGoal)}`
+                  : remainingWeight === 0
+                    ? 'Você chegou na meta'
+                    : remainingWeight > 0
+                      ? `Faltam ${formatKg(remainingWeight)} para a meta`
+                      : `Faltam ${formatKg(Math.abs(remainingWeight))} para a meta`}
+              </p>
+            ) : (
+              <p className="text-sm text-muted">Objetivo: {PROFILE_GOAL_LABELS[activeProfile?.goal ?? 'bulking']}</p>
+            )}
+            {weightProgressValue != null && weightProgressMax != null ? (
+              <ProgressBar className="mt-3" value={weightProgressValue} max={weightProgressMax} />
+            ) : null}
           </Card>
         )
       case 'last_records':

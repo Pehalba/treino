@@ -130,6 +130,7 @@ export type Profile = {
   name: string
   avatar?: ProfileAvatar
   heightCm?: number | null
+  weightGoalKg?: number | null
   goal?: ProfileGoal
   weeklyWorkoutGoal: number
   calorieGoal: number
@@ -431,7 +432,7 @@ export const DASHBOARD_WIDGET_LABELS: Record<DashboardWidgetId, string> = {
   protein: 'Proteína',
   current_weight: 'Peso atual',
   weekly_weight_avg: 'Média semanal de peso',
-  bulk_progress: 'Progresso do bulking',
+  bulk_progress: 'Progresso do peso',
   last_records: 'Últimos recordes',
   load_progression: 'Progressão de carga',
   workout_streak: 'Sequência de treinos',

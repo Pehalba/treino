@@ -11,6 +11,7 @@ import { profileService } from '@/services/profileService'
 import { seedService } from '@/services/seedService'
 import { weightService } from '@/services/weightService'
 import { PROFILE_GOALS, PROFILE_GOAL_LABELS, type ImportPayload, type ProfileGoal } from '@/types'
+import { parseLocaleNumber } from '@/utils/format'
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 
@@ -23,6 +24,7 @@ export function SettingsPage() {
   const [name, setName] = useState(activeProfile?.name ?? '')
   const [height, setHeight] = useState(activeProfile?.heightCm ? String(activeProfile.heightCm) : '')
   const [weight, setWeight] = useState('')
+  const [weightGoal, setWeightGoal] = useState(activeProfile?.weightGoalKg ? String(activeProfile.weightGoalKg) : '')
   const [goal, setGoal] = useState<ProfileGoal>(activeProfile?.goal ?? 'bulking')
   const [calorieGoal, setCalorieGoal] = useState(activeProfile?.calorieGoal ?? 3500)
   const [proteinGoal, setProteinGoal] = useState(activeProfile?.proteinGoal ?? 180)
@@ -43,6 +45,7 @@ export function SettingsPage() {
     if (!activeProfile) return
     setName(activeProfile.name)
     setHeight(activeProfile.heightCm ? String(activeProfile.heightCm) : '')
+    setWeightGoal(activeProfile.weightGoalKg ? String(activeProfile.weightGoalKg) : '')
     setGoal(activeProfile.goal ?? 'bulking')
     setCalorieGoal(activeProfile.calorieGoal)
     setProteinGoal(activeProfile.proteinGoal)
@@ -57,9 +60,12 @@ export function SettingsPage() {
   async function saveGoals() {
     if (!activeProfile || !user) return
     try {
+      const parsedWeight = parseLocaleNumber(weight)
+      const parsedGoal = parseLocaleNumber(weightGoal)
       const patch = {
         name: name.trim(),
         heightCm: height ? Number(height) : null,
+        weightGoalKg: parsedGoal != null && parsedGoal > 0 ? parsedGoal : null,
         goal,
         calorieGoal,
         proteinGoal,
@@ -68,11 +74,8 @@ export function SettingsPage() {
         weeklyWorkoutGoal: weekly,
       }
       await profileService.updateProfile(activeProfile.id, patch, user.id)
-      if (weight.trim()) {
-        const parsed = Number(weight.replace(',', '.'))
-        if (Number.isFinite(parsed) && parsed > 0) {
-          await weightService.logOrUpdateToday({ user, profile: activeProfile, weight: parsed })
-        }
+      if (parsedWeight != null && parsedWeight > 0) {
+        await weightService.logOrUpdateToday({ user, profile: activeProfile, weight: parsedWeight })
       }
       patchActiveProfile(patch)
       show()
@@ -158,6 +161,10 @@ export function SettingsPage() {
             <Input className="mt-1" inputMode="decimal" value={weight} onChange={(e) => setWeight(e.target.value)} />
           </label>
           <label className="text-sm text-muted">
+            Meta de peso (kg)
+            <Input className="mt-1" inputMode="decimal" value={weightGoal} onChange={(e) => setWeightGoal(e.target.value)} />
+          </label>
+          <label className="text-sm text-muted">
             Treinos/semana
             <Input type="number" className="mt-1" value={weekly} onChange={(e) => setWeekly(Number(e.target.value))} />
           </label>
@@ -178,7 +185,9 @@ export function SettingsPage() {
             <Input type="number" className="mt-1" value={fatGoal} onChange={(e) => setFatGoal(Number(e.target.value))} />
           </label>
         </div>
-        <p className="mt-3 text-xs text-muted">O peso de hoje é um registro novo. Dias anteriores continuam iguais.</p>
+        <p className="mt-3 text-xs text-muted">
+          O peso atual vira o registro de hoje. A meta de peso fica salva no perfil.
+        </p>
         <Button className="mt-4 w-full" onClick={() => void saveGoals()}>
           Salvar perfil
         </Button>

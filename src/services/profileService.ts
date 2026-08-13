@@ -107,6 +107,7 @@ export const profileService = {
       carbGoal: 400,
       fatGoal: 90,
       heightCm: null,
+      weightGoalKg: null,
       goal: 'bulking',
     })
     await profileRepository.saveProfile(profile)
@@ -145,6 +146,7 @@ export const profileService = {
         Profile,
         | 'name'
         | 'heightCm'
+        | 'weightGoalKg'
         | 'goal'
         | 'weeklyWorkoutGoal'
         | 'calorieGoal'
@@ -157,6 +159,7 @@ export const profileService = {
   ): Promise<void> {
     if (data.name != null && !data.name.trim()) throw new Error('Nome não pode ficar vazio.')
     if (data.heightCm != null && data.heightCm < 0) throw new Error('Altura inválida.')
+    if (data.weightGoalKg != null && data.weightGoalKg < 0) throw new Error('Meta de peso inválida.')
     if (data.weeklyWorkoutGoal != null && data.weeklyWorkoutGoal < 0) throw new Error('Meta de treinos inválida.')
     if (data.calorieGoal != null && data.calorieGoal < 0) throw new Error('Meta de calorias inválida.')
     await profileRepository.updateProfile(profileId, { ...data, ...auditFields(userId) })

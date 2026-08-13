@@ -54,6 +54,9 @@ export function WeightPage({ embedded = false }: { embedded?: boolean }) {
           <p className="text-xs font-semibold tracking-widest text-muted uppercase">Média de 7 dias</p>
           <p className="mt-1 font-display text-3xl">{avg ? formatKg(avg) : '—'}</p>
           <p className="mt-1 text-sm text-muted">{trendLabel}. O peso diário oscila; a média importa mais.</p>
+          {activeProfile?.weightGoalKg != null ? (
+            <p className="mt-2 text-sm text-muted">Meta: {formatKg(activeProfile.weightGoalKg)}</p>
+          ) : null}
           <Button className="mt-4 w-full" onClick={() => setOpen(true)}>
             Registrar peso
           </Button>
