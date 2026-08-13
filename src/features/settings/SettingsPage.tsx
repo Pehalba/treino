@@ -34,6 +34,8 @@ export function SettingsPage() {
   const [timerMinutes, setTimerMinutes] = useState(
     activeProfile?.timerSeconds ? String(Math.round((activeProfile.timerSeconds / 60) * 2) / 2) : '2',
   )
+  const [ageYears, setAgeYears] = useState(activeProfile?.ageYears ? String(activeProfile.ageYears) : '25')
+  const [activity, setActivity] = useState(activeProfile?.activityMultiplier ? String(activeProfile.activityMultiplier) : '1,5')
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
 
@@ -56,6 +58,8 @@ export function SettingsPage() {
     setFatGoal(activeProfile.fatGoal)
     setWeekly(activeProfile.weeklyWorkoutGoal)
     setTimerMinutes(activeProfile.timerSeconds ? String(Math.round((activeProfile.timerSeconds / 60) * 2) / 2) : '2')
+    setAgeYears(activeProfile.ageYears ? String(activeProfile.ageYears) : '25')
+    setActivity(activeProfile.activityMultiplier ? String(activeProfile.activityMultiplier).replace('.', ',') : '1,5')
     weightService.list(activeProfile.id).then((items) => {
       if (items[0]) setWeight(String(items[0].weight))
     })
@@ -67,6 +71,8 @@ export function SettingsPage() {
       const parsedWeight = parseLocaleNumber(weight)
       const parsedGoal = parseLocaleNumber(weightGoal)
       const parsedTimer = parseLocaleNumber(timerMinutes)
+      const parsedAge = parseLocaleNumber(ageYears)
+      const parsedActivity = parseLocaleNumber(activity)
       const patch = {
         name: name.trim(),
         heightCm: height ? Number(height) : null,
@@ -78,6 +84,8 @@ export function SettingsPage() {
         fatGoal,
         weeklyWorkoutGoal: weekly,
         timerSeconds: parsedTimer != null && parsedTimer > 0 ? Math.round(parsedTimer * 60) : 120,
+        ageYears: parsedAge != null && parsedAge > 0 ? Math.round(parsedAge) : 25,
+        activityMultiplier: parsedActivity != null && parsedActivity > 0 ? parsedActivity : 1.5,
       }
       await profileService.updateProfile(activeProfile.id, patch, user.id)
       if (parsedWeight != null && parsedWeight > 0) {
@@ -159,6 +167,10 @@ export function SettingsPage() {
             </Select>
           </label>
           <label className="text-sm text-muted">
+            Idade
+            <Input className="mt-1" type="number" value={ageYears} onChange={(e) => setAgeYears(e.target.value)} />
+          </label>
+          <label className="text-sm text-muted">
             Altura (cm)
             <Input className="mt-1" type="number" value={height} onChange={(e) => setHeight(e.target.value)} />
           </label>
@@ -169,6 +181,10 @@ export function SettingsPage() {
           <label className="text-sm text-muted">
             Meta de peso (kg)
             <Input className="mt-1" inputMode="decimal" value={weightGoal} onChange={(e) => setWeightGoal(e.target.value)} />
+          </label>
+          <label className="text-sm text-muted">
+            Atividade (1,5 = academia 4x)
+            <Input className="mt-1" inputMode="decimal" value={activity} onChange={(e) => setActivity(e.target.value)} />
           </label>
           <label className="text-sm text-muted">
             Treinos/semana

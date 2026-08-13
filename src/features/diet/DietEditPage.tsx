@@ -10,8 +10,10 @@ import { Textarea } from '@/components/ui/Textarea'
 import { Toast } from '@/components/ui/Toast'
 import { useFeedback } from '@/hooks/useFeedback'
 import { useSession } from '@/hooks/useSession'
+import { DietScalePanel } from '@/features/diet/DietScalePanel'
 import { dietEditorService } from '@/services/dietEditorService'
 import { dietService } from '@/services/nutritionService'
+import { weightService } from '@/services/weightService'
 import {
   MEAL_CATEGORIES,
   MEAL_LABELS,
@@ -51,6 +53,7 @@ export function DietEditPage() {
   const [protein, setProtein] = useState('')
   const [carbs, setCarbs] = useState('')
   const [fat, setFat] = useState('')
+  const [weightKg, setWeightKg] = useState<number | null>(null)
 
   async function load() {
     if (!activeProfile || !user) return
@@ -65,6 +68,8 @@ export function DietEditPage() {
     setName(current.name)
     setCalorieGoal(current.calorieGoal ? String(current.calorieGoal) : '')
     setNotes(current.notes ?? '')
+    const weights = await weightService.list(activeProfile.id)
+    setWeightKg(weights[0]?.weight ?? null)
     setLoading(false)
   }
 
@@ -233,6 +238,20 @@ export function DietEditPage() {
             </Button>
           </Card>
 
+          {user && activeProfile ? (
+            <DietScalePanel
+              profile={activeProfile}
+              userId={user.id}
+              plan={plan}
+              meals={meals}
+              weightKg={weightKg}
+              onApplied={(next) => {
+                setMeals(next)
+                show('Porções atualizadas ✓')
+              }}
+            />
+          ) : null}
+
           <div className="mt-6 space-y-6">
             {sections.map((section) => (
               <section key={section.category}>
@@ -329,7 +348,9 @@ export function DietEditPage() {
                                 <Input
                                   defaultValue={item.foodName}
                                   onBlur={(e) => {
-                                    if (e.target.value.trim() !== item.foodName) void saveItem(item, { foodName: e.target.value })
+                                    if (e.target.value.trim() !== item.foodName) {
+                                      void saveItem(item, { foodName: e.target.value, manualOverride: true })
+                                    }
                                   }}
                                 />
                                 <Input
@@ -337,32 +358,54 @@ export function DietEditPage() {
                                   placeholder="Quantidade"
                                   defaultValue={item.quantityLabel}
                                   onBlur={(e) => {
-                                    if (e.target.value !== item.quantityLabel) void saveItem(item, { quantityLabel: e.target.value })
+                                    if (e.target.value !== item.quantityLabel) {
+                                      void saveItem(item, { quantityLabel: e.target.value, manualOverride: true })
+                                    }
                                   }}
                                 />
                                 <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
                                   <Input
                                     type="number"
                                     defaultValue={item.calories}
-                                    onBlur={(e) => void saveItem(item, { calories: Number(e.target.value) || 0 })}
+                                    onBlur={(e) => {
+                                      const calories = Number(e.target.value) || 0
+                                      if (calories !== item.calories) void saveItem(item, { calories, manualOverride: true })
+                                    }}
                                   />
                                   <Input
                                     type="number"
                                     defaultValue={item.protein}
-                                    onBlur={(e) => void saveItem(item, { protein: Number(e.target.value) || 0 })}
+                                    onBlur={(e) => {
+                                      const protein = Number(e.target.value) || 0
+                                      if (protein !== item.protein) void saveItem(item, { protein, manualOverride: true })
+                                    }}
                                   />
                                   <Input
                                     type="number"
                                     defaultValue={item.carbs}
-                                    onBlur={(e) => void saveItem(item, { carbs: Number(e.target.value) || 0 })}
+                                    onBlur={(e) => {
+                                      const carbs = Number(e.target.value) || 0
+                                      if (carbs !== item.carbs) void saveItem(item, { carbs, manualOverride: true })
+                                    }}
                                   />
                                   <Input
                                     type="number"
                                     defaultValue={item.fat}
-                                    onBlur={(e) => void saveItem(item, { fat: Number(e.target.value) || 0 })}
+                                    onBlur={(e) => {
+                                      const fat = Number(e.target.value) || 0
+                                      if (fat !== item.fat) void saveItem(item, { fat, manualOverride: true })
+                                    }}
                                   />
                                 </div>
                                 <p className="mt-1 text-[11px] text-muted">kcal · prot · carbo · gordura</p>
+                                <label className="mt-3 flex items-center gap-2 text-sm text-muted">
+                                  <input
+                                    type="checkbox"
+                                    checked={Boolean(item.manualOverride)}
+                                    onChange={(e) => void saveItem(item, { manualOverride: e.target.checked })}
+                                  />
+                                  Não recalcular este alimento
+                                </label>
                                 <Input
                                   className="mt-2"
                                   placeholder="Observações"

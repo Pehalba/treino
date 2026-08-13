@@ -141,6 +141,8 @@ export type Profile = {
   carbGoal: number
   fatGoal: number
   timerSeconds?: number
+  ageYears?: number | null
+  activityMultiplier?: number
   createdAt: number
   updatedAt?: number
   updatedBy?: string
@@ -335,6 +337,13 @@ export type DietMealItem = {
   notes?: string
   substitutes?: FoodSubstitute[]
   order: number
+  autoScalable?: boolean
+  manualOverride?: boolean
+  baseCalories?: number
+  baseProtein?: number
+  baseCarbs?: number
+  baseFat?: number
+  baseQuantityLabel?: string
   active?: boolean
   archivedAt?: number | null
   updatedAt?: number

@@ -109,6 +109,8 @@ export const profileService = {
       heightCm: null,
       weightGoalKg: null,
       timerSeconds: 120,
+      ageYears: 25,
+      activityMultiplier: 1.5,
       goal: 'bulking',
     })
     await profileRepository.saveProfile(profile)
@@ -155,6 +157,8 @@ export const profileService = {
         | 'carbGoal'
         | 'fatGoal'
         | 'timerSeconds'
+        | 'ageYears'
+        | 'activityMultiplier'
       >
     >,
     userId: string,
@@ -167,6 +171,10 @@ export const profileService = {
     }
     if (data.weeklyWorkoutGoal != null && data.weeklyWorkoutGoal < 0) throw new Error('Meta de treinos inválida.')
     if (data.calorieGoal != null && data.calorieGoal < 0) throw new Error('Meta de calorias inválida.')
+    if (data.ageYears != null && (data.ageYears < 10 || data.ageYears > 90)) throw new Error('Idade inválida.')
+    if (data.activityMultiplier != null && (data.activityMultiplier < 1.1 || data.activityMultiplier > 2.2)) {
+      throw new Error('Fator de atividade inválido.')
+    }
     await profileRepository.updateProfile(profileId, { ...data, ...auditFields(userId) })
   },
 

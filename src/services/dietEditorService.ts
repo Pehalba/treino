@@ -81,7 +81,26 @@ export const dietEditorService = {
 
   async updateItem(
     itemId: string,
-    data: Partial<Pick<DietMealItem, 'foodName' | 'calories' | 'protein' | 'carbs' | 'fat' | 'quantityLabel' | 'notes' | 'substitutes'>>,
+    data: Partial<
+      Pick<
+        DietMealItem,
+        | 'foodName'
+        | 'calories'
+        | 'protein'
+        | 'carbs'
+        | 'fat'
+        | 'quantityLabel'
+        | 'notes'
+        | 'substitutes'
+        | 'manualOverride'
+        | 'autoScalable'
+        | 'baseCalories'
+        | 'baseProtein'
+        | 'baseCarbs'
+        | 'baseFat'
+        | 'baseQuantityLabel'
+      >
+    >,
     userId: string,
   ): Promise<void> {
     if (data.foodName != null) data.foodName = requireName(data.foodName, 'Alimento')
@@ -138,6 +157,13 @@ export const dietEditorService = {
       notes: params.notes ?? '',
       substitutes: params.substitutes ?? [],
       order: params.order,
+      autoScalable: true,
+      manualOverride: true,
+      baseCalories: params.calories,
+      baseProtein: params.protein,
+      baseCarbs: params.carbs,
+      baseFat: params.fat,
+      baseQuantityLabel: params.quantityLabel.trim(),
       active: true,
       archivedAt: null,
       updatedAt: Date.now(),
@@ -237,6 +263,13 @@ export const dietEditorService = {
             notes: '',
             substitutes: [],
             order: itemOrder,
+            autoScalable: true,
+            manualOverride: false,
+            baseCalories: item.calories,
+            baseProtein: item.protein,
+            baseCarbs: item.carbs,
+            baseFat: item.fat,
+            baseQuantityLabel: item.quantityLabel,
             active: true,
             archivedAt: null,
             updatedAt: now,
@@ -247,6 +280,29 @@ export const dietEditorService = {
     })
     await commitAll(docs)
     return plan
+  },
+
+  async applyScaledItems(items: DietMealItem[], userId: string): Promise<void> {
+    if (items.length === 0) return
+    await patchMany(
+      items.map((item) => ({
+        collection: 'dietMealItems',
+        id: item.id,
+        data: {
+          calories: item.calories,
+          protein: item.protein,
+          carbs: item.carbs,
+          fat: item.fat,
+          quantityLabel: item.quantityLabel,
+          baseCalories: item.baseCalories ?? item.calories,
+          baseProtein: item.baseProtein ?? item.protein,
+          baseCarbs: item.baseCarbs ?? item.carbs,
+          baseFat: item.baseFat ?? item.fat,
+          baseQuantityLabel: item.baseQuantityLabel ?? item.quantityLabel,
+          ...auditFields(userId),
+        },
+      })),
+    )
   },
 
   liveMeals<T extends DietMeal>(meals: T[]): T[] {

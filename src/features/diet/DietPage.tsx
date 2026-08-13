@@ -41,7 +41,7 @@ export function DietPage() {
   return (
     <AppShell title="Dietas">
       <p className="mb-4 text-sm text-muted">
-        Aqui você só vê o plano e como preparar. Para anotar o que comeu, use Calorias.
+        Aqui você vê o plano. Para registrar o que comeu, use Calorias. Para subir ou descer as kcal sem trocar os pratos, use Editar → Ajustar porções.
       </p>
       {loading ? (
         <Skeleton className="h-64" />
