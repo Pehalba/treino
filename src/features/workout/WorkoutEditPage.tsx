@@ -331,6 +331,20 @@ export function WorkoutEditPage() {
                         />
                       </label>
                       <label className="block text-sm text-muted">
+                        URL da foto
+                        <Input
+                          className="mt-1"
+                          defaultValue={exercise.imageUrl ?? ''}
+                          placeholder="Deixe vazio para usar a foto padrão"
+                          onBlur={(e) => {
+                            const next = e.target.value.trim()
+                            if (next !== (exercise.imageUrl ?? '')) {
+                              void saveExercise(exercise, { imageUrl: next })
+                            }
+                          }}
+                        />
+                      </label>
+                      <label className="block text-sm text-muted">
                         Observações
                         <Textarea
                           className="mt-1"

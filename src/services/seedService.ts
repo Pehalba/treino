@@ -1,4 +1,5 @@
 import { PLACEHOLDER_DIET, PLACEHOLDER_EXERCISES, PLACEHOLDER_TEMPLATES } from '@/data/placeholders'
+import { exerciseImageByKey } from '@/data/exerciseImages'
 import { commitAll } from '@/repositories/base'
 import { exerciseRepository } from '@/repositories/exerciseRepository'
 import { nutritionRepository } from '@/repositories/nutritionRepository'
@@ -43,6 +44,7 @@ export const seedService = {
         equipment: item.equipment,
         description: item.description,
         youtubeUrl: item.youtubeUrl,
+        imageUrl: exerciseImageByKey(item.key),
         alternativeIds: [],
         defaultSets: item.defaultSets,
         defaultRepMin: item.defaultRepMin,

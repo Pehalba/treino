@@ -40,6 +40,36 @@ export function VideoModal({
   )
 }
 
+export function ImageModal({
+  url,
+  open,
+  onClose,
+  title = 'Foto do exercício',
+}: {
+  url: string
+  open: boolean
+  onClose: () => void
+  title?: string
+}) {
+  return (
+    <Modal open={open} onClose={onClose} title={title}>
+      {url ? (
+        <div className="overflow-hidden rounded-2xl bg-white">
+          <img
+            src={url}
+            alt={title}
+            className="mx-auto max-h-[70vh] w-full object-contain"
+            loading="lazy"
+            decoding="async"
+          />
+        </div>
+      ) : (
+        <p className="text-sm text-muted">Foto ainda não cadastrada.</p>
+      )}
+    </Modal>
+  )
+}
+
 export function LastTime({ sets }: { sets: ExerciseSet[] }) {
   if (sets.length === 0) {
     return <p className="text-sm text-muted">Primeira vez neste exercício.</p>

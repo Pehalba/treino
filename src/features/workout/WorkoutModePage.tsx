@@ -13,9 +13,11 @@ import {
   SkipModal,
   TimerDoneModal,
   TimerEditModal,
+  ImageModal,
   VideoModal,
   WorkoutSummary,
 } from '@/features/workout/WorkoutPieces'
+import { resolveExerciseImage } from '@/data/exerciseImages'
 import { useRestTimer } from '@/hooks/useRestTimer'
 import { useSession } from '@/hooks/useSession'
 import { exerciseService } from '@/services/exerciseService'
@@ -62,6 +64,7 @@ export function WorkoutModePage() {
   const [doneSummary, setDoneSummary] = useState<ProgressionSummary | null>(null)
   const [finished, setFinished] = useState<WorkoutSession | null>(null)
   const [videoOpen, setVideoOpen] = useState(false)
+  const [imageOpen, setImageOpen] = useState(false)
   const [skipOpen, setSkipOpen] = useState(false)
   const [occupiedOpen, setOccupiedOpen] = useState(false)
   const [replaceOpen, setReplaceOpen] = useState(false)
@@ -366,7 +369,8 @@ export function WorkoutModePage() {
               exerciseName: ex.name,
               muscleGroup: ex.muscleGroup,
               equipment: ex.equipment,
-              youtubeUrl: ex.youtubeUrl,
+                youtubeUrl: ex.youtubeUrl,
+                imageUrl: ex.imageUrl,
               weightIncrement: ex.weightIncrement,
               substituted: true,
               substituteOnlyToday: true,
@@ -462,6 +466,10 @@ export function WorkoutModePage() {
   const muscleGroup = current.muscleGroup || exercise?.muscleGroup || 'chest'
   const equipment = current.equipment || exercise?.equipment || 'other'
   const youtubeUrl = current.youtubeUrl || exercise?.youtubeUrl || ''
+  const imageUrl = resolveExerciseImage({
+    name: exerciseName,
+    imageUrl: current.imageUrl || exercise?.imageUrl,
+  })
   const weightIncrement = current.weightIncrement || exercise?.weightIncrement || 2
 
   const index = exercises.findIndex((e) => e.id === current.id)
@@ -535,9 +543,16 @@ export function WorkoutModePage() {
             Meta: <strong>{current.sets} séries</strong> · <strong>{current.repMin}–{current.repMax} repetições</strong>
           </p>
 
-          <Button className="mt-4" variant="secondary" onClick={() => setVideoOpen(true)}>
-            ▶ Ver execução
-          </Button>
+          <div className="mt-4 flex flex-wrap gap-2">
+            {imageUrl ? (
+              <Button variant="secondary" onClick={() => setImageOpen(true)}>
+                Ver foto
+              </Button>
+            ) : null}
+            <Button variant="secondary" onClick={() => setVideoOpen(true)}>
+              ▶ Ver execução
+            </Button>
+          </div>
 
           {!doneSummary ? (
             <>
@@ -589,6 +604,12 @@ export function WorkoutModePage() {
       </AnimatePresence>
 
       <VideoModal url={youtubeUrl} open={videoOpen} onClose={() => setVideoOpen(false)} />
+      <ImageModal
+        url={imageUrl ?? ''}
+        open={imageOpen}
+        onClose={() => setImageOpen(false)}
+        title={exerciseName}
+      />
       <TimerEditModal
         open={timerOpen}
         minutes={timerMinutes}

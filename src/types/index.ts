@@ -171,6 +171,8 @@ export type Exercise = {
   equipment: Equipment
   description: string
   youtubeUrl: string
+  /** Optional photo URL (local path or remote). */
+  imageUrl?: string
   alternativeIds: string[]
   defaultSets: number
   defaultRepMin: number
@@ -246,6 +248,7 @@ export type WorkoutSessionExercise = {
   muscleGroup?: MuscleGroup
   equipment?: Equipment
   youtubeUrl?: string
+  imageUrl?: string
   weightIncrement?: WeightIncrement
   setsPlanned?: number
   order: number

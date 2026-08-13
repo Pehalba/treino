@@ -7,6 +7,7 @@ export type PlaceholderExercise = {
   equipment: Equipment
   description: string
   youtubeUrl: string
+  imageUrl?: string
   alternativeKeys: string[]
   defaultSets: number
   defaultRepMin: number

@@ -183,6 +183,7 @@ export const workoutEditorService = {
         | 'equipment'
         | 'description'
         | 'youtubeUrl'
+        | 'imageUrl'
         | 'alternativeIds'
         | 'defaultSets'
         | 'defaultRepMin'
