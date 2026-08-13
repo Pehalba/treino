@@ -24,15 +24,20 @@ import { clearLocalSession, saveLocalSession, type LocalWorkoutSnapshot } from '
 
 export const workoutService = {
   async getTemplatesWithMeta(profileId: string, householdId?: string): Promise<TemplateWithMeta[]> {
-    const [templates, allTemplateExercises, sessions] = await Promise.all([
+    const hid = householdId ?? ''
+    const [templates, allTemplateExercises, sessions, exercises] = await Promise.all([
       workoutRepository.listTemplates(profileId),
       workoutRepository.listTemplateExercisesByProfile(profileId),
-      workoutRepository.listSessions(profileId, 80),
+      workoutRepository.listSessions(profileId, 20),
+      hid ? exerciseRepository.listByHousehold(hid) : Promise.resolve([]),
     ])
-    const hid = householdId || templates[0]?.householdId || allTemplateExercises[0]?.householdId || ''
-    const exercises = hid ? await exerciseRepository.listByHousehold(hid) : []
+    const catalog = exercises.length
+      ? exercises
+      : templates[0]?.householdId
+        ? await exerciseRepository.listByHousehold(templates[0].householdId)
+        : []
 
-    const exerciseMap = new Map(exercises.map((item) => [item.id, item]))
+    const exerciseMap = new Map(catalog.map((item) => [item.id, item]))
     return templates
       .filter(isLive)
       .map((template) => {

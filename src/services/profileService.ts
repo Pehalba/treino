@@ -20,13 +20,13 @@ export function sortProfiles(profiles: Profile[]): Profile[] {
 }
 
 export const profileService = {
-  async bootstrapUser(uid: string, email: string, displayName: string): Promise<{ user: UserRecord; profile: Profile }> {
+  async bootstrapUser(uid: string, email: string, displayName: string): Promise<{ user: UserRecord; profile: Profile; profiles: Profile[] }> {
     const existing = await profileRepository.getUser(uid)
     if (existing) {
-    const profiles = await this.ensureDefaultProfiles(existing)
-    const profile = profiles[0]
-    if (!profile) throw new Error('Não foi possível carregar os perfis.')
-    return { user: existing, profile }
+      const profiles = await this.ensureDefaultProfiles(existing)
+      const profile = profiles[0]
+      if (!profile) throw new Error('Não foi possível carregar os perfis.')
+      return { user: existing, profile, profiles }
     }
 
     const household: Household = {
@@ -51,18 +51,33 @@ export const profileService = {
     const profiles = await this.ensureDefaultProfiles(user)
     const profile = profiles[0]
     if (!profile) throw new Error('Não foi possível criar os perfis.')
-    return { user, profile }
+    return { user, profile, profiles }
   },
 
   async ensureDefaultProfiles(user: UserRecord): Promise<Profile[]> {
-    const current = await this.listAccessibleProfiles(user.id)
+    const current = sortProfiles(await profileRepository.listHouseholdProfiles(user.householdId))
     const names = new Set(current.map((item) => item.name.trim().toLowerCase()))
+    const created: Profile[] = []
     for (const def of DEFAULT_PROFILES) {
       if (names.has(def.name.toLowerCase())) continue
-      await this.createProfile(user, def.name, { seed: false, avatar: def.avatar })
+      created.push(await this.createProfile(user, def.name, { seed: false, avatar: def.avatar }))
     }
-    const profiles = sortProfiles(await this.listAccessibleProfiles(user.id))
-    await seedService.ensureHouseholdCatalog(user.householdId)
+    const profiles = created.length
+      ? sortProfiles(await profileRepository.listHouseholdProfiles(user.householdId))
+      : current
+
+    if (created.length === 0 && profiles.length > 0) {
+      setTimeout(() => {
+        void this.seedInBackground(user, profiles)
+      }, 2500)
+      return profiles
+    }
+
+    await this.seedInBackground(user, profiles)
+    return profiles
+  },
+
+  async seedInBackground(user: UserRecord, profiles: Profile[]): Promise<void> {
     const pedro = profiles.find((profile) => profile.name.trim().toLowerCase() === 'pedro')
     for (const profile of profiles) {
       const isGuest = profile.name.trim().toLowerCase() === 'convidado'
@@ -73,7 +88,6 @@ export const profileService = {
         await seedService.seedProfile(profile.id, user.householdId)
       }
     }
-    return profiles
   },
 
   async createProfile(

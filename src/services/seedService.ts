@@ -51,9 +51,14 @@ export const seedService = {
   },
 
   async seedProfile(profileId: string, householdId: string): Promise<void> {
+    const [templates, plans] = await Promise.all([
+      workoutRepository.listTemplates(profileId),
+      nutritionRepository.listPlans(profileId),
+    ])
+    if (templates.length > 0 && plans.length > 0) return
+
     const catalog = await this.ensureHouseholdCatalog(householdId)
-    const templates = await workoutRepository.listTemplates(profileId)
-    const docs: Array<{ collection: string; data: { id: string } }> = []
+    const docs: Array<{ collection: string; data: { id: string } & Record<string, unknown> }> = []
 
     if (templates.length === 0) {
       const byKey = new Map<string, Exercise>()
@@ -99,7 +104,6 @@ export const seedService = {
       }
     }
 
-    const plans = await nutritionRepository.listPlans(profileId)
     if (plans.length === 0) {
       docs.push(...this.dietDocs(profileId, householdId))
     }
@@ -121,7 +125,7 @@ export const seedService = {
     }
 
     const sourceRows = await workoutRepository.listTemplateExercisesByProfile(sourceProfileId)
-    const docs: Array<{ collection: string; data: { id: string } }> = []
+    const docs: Array<{ collection: string; data: { id: string } & Record<string, unknown> }> = []
     for (const template of sourceTemplates) {
       const copy: WorkoutTemplate = {
         ...template,
@@ -222,7 +226,7 @@ export const seedService = {
     const catalog = await this.ensureHouseholdCatalog(householdId)
     const existing = await exerciseRepository.listByHousehold(householdId)
     for (const item of existing) catalog.set(item.name.toLowerCase(), item)
-    const docs: Array<{ collection: string; data: { id: string } }> = []
+    const docs: Array<{ collection: string; data: { id: string } & Record<string, unknown> }> = []
 
     for (const item of payload.exercises ?? []) {
       const current = catalog.get(item.name.toLowerCase())

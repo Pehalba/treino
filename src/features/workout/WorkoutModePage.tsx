@@ -203,6 +203,11 @@ export function WorkoutModePage() {
     setReps(value)
     rememberLoad(weight, value)
   }
+
+  function persistSnapshot(
+    nextExercises: WorkoutSessionExercise[] = exercises,
+    nextSets: ExerciseSet[] = sets,
+  ) {
     if (!session) return
     workoutService.persistLocal({
       session,

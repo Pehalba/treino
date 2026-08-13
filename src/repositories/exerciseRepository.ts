@@ -17,5 +17,5 @@ export const exerciseRepository = {
       onData(items.sort((a, b) => a.name.localeCompare(b.name, 'pt-BR')))
     }, onError),
   save: (exercise: Exercise) => createDoc('exercises', exercise),
-  update: (id: string, data: Partial<Exercise>) => patchDoc('exercises', id, data),
+  update: (id: string, data: Partial<Exercise> | Record<string, unknown>) => patchDoc('exercises', id, data),
 }

@@ -17,7 +17,7 @@ export const profileRepository = {
 
   getProfile: (id: string) => getById<Profile>('profiles', id),
   saveProfile: (profile: Profile) => createDoc('profiles', profile),
-  updateProfile: (id: string, data: Partial<Profile>) => patchDoc('profiles', id, data),
+  updateProfile: (id: string, data: Partial<Profile> | Record<string, unknown>) => patchDoc('profiles', id, data),
   listHouseholdProfiles: (householdId: string) =>
     listDocs<Profile>('profiles', where('householdId', '==', householdId)),
   subscribeHouseholdProfiles: (

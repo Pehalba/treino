@@ -34,7 +34,9 @@ export function HomePage() {
   const [logs, setLogs] = useState<FoodLog[]>([])
   const [weights, setWeights] = useState<WeightEntry[]>([])
   const [records, setRecords] = useState<PersonalRecord[]>([])
-  const [widgets, setWidgets] = useState<Array<{ id: DashboardWidgetId; visible: boolean }>>([])
+  const [widgets, setWidgets] = useState<Array<{ id: DashboardWidgetId; visible: boolean }>>(() =>
+    dashboardService.defaults(),
+  )
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [starting, setStarting] = useState<string | null>(null)
@@ -44,23 +46,26 @@ export function HomePage() {
     setLoading(true)
     setError('')
     try {
-      const [tpl, sess, food, w, recs, prefs] = await Promise.all([
+      const [tpl, sess] = await Promise.all([
         workoutService.getTemplatesWithMeta(activeProfile.id, activeProfile.householdId),
-        workoutService.listSessions(activeProfile.id, 80),
-        nutritionService.listLogsByProfile(activeProfile.id),
+        workoutService.listSessions(activeProfile.id, 20),
+      ])
+      setTemplates(tpl)
+      setSessions(sess)
+      setLoading(false)
+
+      const [food, w, recs, prefs] = await Promise.all([
+        nutritionService.listLogsSince(activeProfile.id, todayKey(weekStart())),
         weightService.list(activeProfile.id),
         workoutService.listRecords(activeProfile.id),
         dashboardService.get(activeProfile.id),
       ])
-      setTemplates(tpl)
-      setSessions(sess)
       setLogs(food)
       setWeights(w)
       setRecords(recs)
       setWidgets(prefs)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Falha ao carregar treinos.')
-    } finally {
       setLoading(false)
     }
   }

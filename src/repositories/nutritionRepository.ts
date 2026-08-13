@@ -1,5 +1,5 @@
 import { where } from 'firebase/firestore'
-import { createDoc, listDocs, patchDoc, subscribeDocs, upsertDoc } from '@/repositories/base'
+import { createDoc, listDocs, patchDoc, subscribeDocs } from '@/repositories/base'
 import type { DietMeal, DietMealItem, DietPlan, Food, FoodLog } from '@/types'
 import type { Unsubscribe } from 'firebase/firestore'
 
@@ -36,16 +36,21 @@ export const nutritionRepository = {
 
   saveLog: (log: FoodLog) => createDoc('foodLogs', log),
   listLogsByDate: async (profileId: string, date: string) =>
-    (await listDocs<FoodLog>('foodLogs', where('profileId', '==', profileId))).filter((item) => item.date === date),
+    listDocs<FoodLog>('foodLogs', where('profileId', '==', profileId), where('date', '==', date)),
+  listLogsSince: async (profileId: string, fromDate: string) =>
+    listDocs<FoodLog>('foodLogs', where('profileId', '==', profileId), where('date', '>=', fromDate)),
   subscribeLogsByDate: (
     profileId: string,
     date: string,
     onData: (items: FoodLog[]) => void,
     onError?: (error: Error) => void,
   ): Unsubscribe =>
-    subscribeDocs<FoodLog>('foodLogs', [where('profileId', '==', profileId)], (items) => {
-      onData(items.filter((item) => item.date === date))
-    }, onError),
+    subscribeDocs<FoodLog>(
+      'foodLogs',
+      [where('profileId', '==', profileId), where('date', '==', date)],
+      onData,
+      onError,
+    ),
   listLogsByProfile: async (profileId: string) =>
     (await listDocs<FoodLog>('foodLogs', where('profileId', '==', profileId))).sort((a, b) =>
       b.date.localeCompare(a.date),

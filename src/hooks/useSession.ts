@@ -22,8 +22,11 @@ export function useAuthBootstrap(): void {
 
     let unsubProfiles: (() => void) | undefined
     let cancelled = false
+    let unsubAuth: (() => void) | undefined
 
-    const unsubAuth = authService.subscribe(async (firebaseUser) => {
+    void authService.ready().then(() => {
+      if (cancelled) return
+      unsubAuth = authService.subscribe(async (firebaseUser) => {
       unsubProfiles?.()
       if (!firebaseUser) {
         setBootstrapping(true)
@@ -38,15 +41,13 @@ export function useAuthBootstrap(): void {
       setBootstrapping(true)
       setFirebaseUser(firebaseUser)
       try {
-        const { user } = await profileService.bootstrapUser(
+        const { user, profiles } = await profileService.bootstrapUser(
           firebaseUser.uid,
           firebaseUser.email ?? '',
           firebaseUser.displayName ?? 'Pedro & Carol',
         )
         if (cancelled) return
         setUser(user)
-        const profiles = await profileService.listAccessibleProfiles(user.id)
-        if (cancelled) return
         setProfiles(profiles)
         const savedId = loadActiveProfileId(user.id)
         const current = useAppStore.getState().activeProfile
@@ -71,11 +72,12 @@ export function useAuthBootstrap(): void {
       } finally {
         if (!cancelled) setBootstrapping(false)
       }
+      })
     })
 
     return () => {
       cancelled = true
-      unsubAuth()
+      unsubAuth?.()
       unsubProfiles?.()
     }
   }, [reset, setActiveProfile, setBootstrapping, setFirebaseUser, setProfiles, setUser])

@@ -102,4 +102,5 @@ export const nutritionService = {
   subscribeLogsByDate: nutritionRepository.subscribeLogsByDate,
   listLogsByProfile: nutritionRepository.listLogsByProfile,
   listLogsByDate: nutritionRepository.listLogsByDate,
+  listLogsSince: nutritionRepository.listLogsSince,
 }
