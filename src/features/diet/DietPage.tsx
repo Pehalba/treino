@@ -1,6 +1,7 @@
 import { AppShell } from '@/components/layout/AppShell'
 import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
+import { EditButton } from '@/components/ui/EditButton'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { Input } from '@/components/ui/Input'
 import { Modal } from '@/components/ui/Modal'
@@ -51,13 +52,21 @@ export function DietPage() {
       {loading ? (
         <Skeleton className="h-64" />
       ) : meals.length === 0 ? (
-        <EmptyState
-          title="Nenhuma dieta cadastrada"
-          description="A dieta real será importada depois. Você já pode usar placeholders ou importar um JSON no perfil."
-        />
+        <div>
+          <EmptyState
+            title="Nenhuma dieta cadastrada"
+            description="Monte a dieta pelo botão Editar. O que você já comeu em dias anteriores não muda."
+          />
+          <div className="mt-4 flex justify-center">
+            <EditButton to="/dietas/editar" />
+          </div>
+        </div>
       ) : (
         <>
-          <h2 className="mb-3 font-display text-2xl">{planName}</h2>
+          <div className="mb-3 flex items-center justify-between gap-3">
+            <h2 className="font-display text-2xl">{planName}</h2>
+            <EditButton to="/dietas/editar" />
+          </div>
           <div className="space-y-3">
             {meals.map((meal) => {
               const kcal = meal.items.reduce((s, i) => s + i.calories, 0)

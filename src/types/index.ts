@@ -110,17 +110,36 @@ export type Household = {
   createdBy: string
 }
 
+export const PROFILE_AVATARS = ['pedro', 'carol', 'guest'] as const
+export type ProfileAvatar = (typeof PROFILE_AVATARS)[number]
+
+export const PROFILE_GOALS = ['bulking', 'cutting', 'maintain', 'recomp'] as const
+export type ProfileGoal = (typeof PROFILE_GOALS)[number]
+
+export const PROFILE_GOAL_LABELS: Record<ProfileGoal, string> = {
+  bulking: 'Bulking',
+  cutting: 'Cutting',
+  maintain: 'Manutenção',
+  recomp: 'Recomposição',
+}
+
 export type Profile = {
   id: string
   householdId: string
   ownerUserId: string
   name: string
+  avatar?: ProfileAvatar
+  heightCm?: number | null
+  goal?: ProfileGoal
   weeklyWorkoutGoal: number
   calorieGoal: number
   proteinGoal: number
   carbGoal: number
   fatGoal: number
   createdAt: number
+  updatedAt?: number
+  updatedBy?: string
+  version?: number
 }
 
 export type ProfileMember = {
@@ -146,7 +165,12 @@ export type Exercise = {
   defaultRestSeconds: number
   weightIncrement: WeightIncrement
   isPlaceholder: boolean
+  active?: boolean
+  archivedAt?: number | null
   createdAt: number
+  updatedAt?: number
+  updatedBy?: string
+  version?: number
 }
 
 export type WorkoutTemplate = {
@@ -155,7 +179,12 @@ export type WorkoutTemplate = {
   householdId: string
   name: string
   order: number
+  active?: boolean
+  archivedAt?: number | null
   createdAt: number
+  updatedAt?: number
+  updatedBy?: string
+  version?: number
 }
 
 export type WorkoutTemplateExercise = {
@@ -170,6 +199,11 @@ export type WorkoutTemplateExercise = {
   repMax: number
   restSeconds: number
   notes: string
+  active?: boolean
+  archivedAt?: number | null
+  updatedAt?: number
+  updatedBy?: string
+  version?: number
 }
 
 export type WorkoutSession = {
@@ -195,6 +229,12 @@ export type WorkoutSessionExercise = {
   workoutSessionId: string
   exerciseId: string
   originalExerciseId: string
+  exerciseName?: string
+  muscleGroup?: MuscleGroup
+  equipment?: Equipment
+  youtubeUrl?: string
+  weightIncrement?: WeightIncrement
+  setsPlanned?: number
   order: number
   sets: number
   repMin: number
@@ -235,14 +275,29 @@ export type PersonalRecord = {
   createdAt: number
 }
 
+export type FoodSubstitute = {
+  foodName: string
+  calories: number
+  protein: number
+  carbs: number
+  fat: number
+  quantityLabel: string
+}
+
 export type DietPlan = {
   id: string
   profileId: string
   householdId: string
   name: string
+  calorieGoal?: number | null
+  notes?: string
   isActive: boolean
   isPlaceholder: boolean
+  archivedAt?: number | null
   createdAt: number
+  updatedAt?: number
+  updatedBy?: string
+  version?: number
 }
 
 export type DietMeal = {
@@ -253,6 +308,11 @@ export type DietMeal = {
   category: MealCategory
   order: number
   name: string
+  notes?: string
+  active?: boolean
+  archivedAt?: number | null
+  updatedAt?: number
+  updatedBy?: string
 }
 
 export type DietMealItem = {
@@ -266,7 +326,13 @@ export type DietMealItem = {
   carbs: number
   fat: number
   quantityLabel: string
+  notes?: string
+  substitutes?: FoodSubstitute[]
   order: number
+  active?: boolean
+  archivedAt?: number | null
+  updatedAt?: number
+  updatedBy?: string
 }
 
 export type Food = {
@@ -334,6 +400,70 @@ export type ProgressionSummary = {
   targetHit: boolean
   isRecord: boolean
   recordTypes: Array<PersonalRecord['type']>
+}
+
+export const DASHBOARD_WIDGETS = [
+  'today_workout',
+  'workout_list',
+  'week_workouts',
+  'weekly_goal',
+  'calories_consumed',
+  'calories_remaining',
+  'protein',
+  'current_weight',
+  'weekly_weight_avg',
+  'bulk_progress',
+  'last_records',
+  'load_progression',
+  'workout_streak',
+  'diet_adherence',
+] as const
+
+export type DashboardWidgetId = (typeof DASHBOARD_WIDGETS)[number]
+
+export const DASHBOARD_WIDGET_LABELS: Record<DashboardWidgetId, string> = {
+  today_workout: 'Treino de hoje',
+  workout_list: 'Lista de treinos',
+  week_workouts: 'Treinos da semana',
+  weekly_goal: 'Meta semanal',
+  calories_consumed: 'Calorias consumidas',
+  calories_remaining: 'Calorias restantes',
+  protein: 'Proteína',
+  current_weight: 'Peso atual',
+  weekly_weight_avg: 'Média semanal de peso',
+  bulk_progress: 'Progresso do bulking',
+  last_records: 'Últimos recordes',
+  load_progression: 'Progressão de carga',
+  workout_streak: 'Sequência de treinos',
+  diet_adherence: 'Aderência à dieta',
+}
+
+export const DEFAULT_DASHBOARD_WIDGETS: Array<{ id: DashboardWidgetId; visible: boolean }> = [
+  { id: 'today_workout', visible: true },
+  { id: 'workout_list', visible: true },
+  { id: 'weekly_goal', visible: true },
+  { id: 'calories_consumed', visible: true },
+  { id: 'protein', visible: true },
+  { id: 'current_weight', visible: true },
+  { id: 'week_workouts', visible: false },
+  { id: 'calories_remaining', visible: false },
+  { id: 'weekly_weight_avg', visible: false },
+  { id: 'bulk_progress', visible: false },
+  { id: 'last_records', visible: false },
+  { id: 'load_progression', visible: false },
+  { id: 'workout_streak', visible: false },
+  { id: 'diet_adherence', visible: false },
+]
+
+export type DashboardPreferences = {
+  id: string
+  profileId: string
+  householdId: string
+  userId: string
+  widgets: Array<{ id: DashboardWidgetId; visible: boolean }>
+  updatedAt: number
+  updatedBy: string
+  version?: number
 }
 
 export type ImportPayload = {

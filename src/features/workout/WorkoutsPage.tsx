@@ -1,6 +1,7 @@
 import { AppShell } from '@/components/layout/AppShell'
 import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
+import { EditButton } from '@/components/ui/EditButton'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { Skeleton } from '@/components/ui/Skeleton'
 import { useSession } from '@/hooks/useSession'
@@ -55,7 +56,10 @@ export function WorkoutsPage() {
                 <h3 className="font-display text-xl">{t.name}</h3>
                 <p className="text-sm text-muted">{t.exercises.length} exercícios</p>
               </div>
-              <Button onClick={() => void start(t)}>Iniciar</Button>
+              <div className="flex flex-col items-end gap-2">
+                <EditButton to={`/treinos/${t.id}/editar`} />
+                <Button onClick={() => void start(t)}>Iniciar</Button>
+              </div>
             </Card>
           ))}
         </div>

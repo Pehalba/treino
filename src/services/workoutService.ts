@@ -1,6 +1,6 @@
-import { workoutRepository } from '@/repositories/workoutRepository'
+import { commitAll, deleteAll } from '@/repositories/base'
 import { exerciseRepository } from '@/repositories/exerciseRepository'
-import { deleteAll } from '@/repositories/base'
+import { workoutRepository } from '@/repositories/workoutRepository'
 import type {
   Exercise,
   ExerciseSet,
@@ -15,6 +15,7 @@ import type {
   WorkoutSessionExercise,
   WorkoutTemplate,
 } from '@/types'
+import { isLive } from '@/utils/audit'
 import { newId } from '@/utils/ids'
 import { pickNextExercise, withMuscle } from '@/utils/muscleOrder'
 import { detectNewRecords, summarizeProgression } from '@/utils/progression'
@@ -32,9 +33,11 @@ export const workoutService = {
     const exercises = hid ? await exerciseRepository.listByHousehold(hid) : []
 
     const exerciseMap = new Map(exercises.map((item) => [item.id, item]))
-    return templates.map((template) => {
+    return templates
+      .filter(isLive)
+      .map((template) => {
       const rows = allTemplateExercises
-        .filter((item) => item.templateId === template.id)
+        .filter((item) => item.templateId === template.id && isLive(item))
         .sort((a, b) => a.order - b.order)
       const related = sessions.filter((s) => s.workoutTemplateId === template.id && s.completed)
       const last = related[0] ?? null
@@ -65,7 +68,12 @@ export const workoutService = {
     profile: Profile
     template: WorkoutTemplate
   }): Promise<{ session: WorkoutSession; exercises: WorkoutSessionExercise[] }> {
-    const rows = await workoutRepository.listTemplateExercises(params.template.id)
+    const [allRows, catalog] = await Promise.all([
+      workoutRepository.listTemplateExercises(params.template.id),
+      exerciseRepository.listByHousehold(params.profile.householdId),
+    ])
+    const rows = allRows.filter(isLive).sort((a, b) => a.order - b.order)
+    const catalogMap = new Map(catalog.map((item) => [item.id, item]))
     const session: WorkoutSession = {
       id: newId(),
       profileId: params.profile.id,
@@ -81,31 +89,39 @@ export const workoutService = {
       exercisesCompleted: 0,
       notes: '',
     }
-    await workoutRepository.saveSession(session)
 
-    const exercises: WorkoutSessionExercise[] = []
-    for (const row of rows.sort((a, b) => a.order - b.order)) {
-      const item: WorkoutSessionExercise = {
+    const exercises: WorkoutSessionExercise[] = rows.map((row, index) => {
+      const exercise = catalogMap.get(row.exerciseId)
+      return {
         id: newId(),
         profileId: params.profile.id,
         householdId: params.profile.householdId,
         workoutSessionId: session.id,
         exerciseId: row.exerciseId,
         originalExerciseId: row.exerciseId,
+        exerciseName: exercise?.name ?? 'Exercício',
+        muscleGroup: exercise?.muscleGroup ?? 'chest',
+        equipment: exercise?.equipment ?? 'other',
+        youtubeUrl: exercise?.youtubeUrl ?? '',
+        weightIncrement: exercise?.weightIncrement ?? 2,
+        setsPlanned: row.sets,
         order: row.order,
         sets: row.sets,
         repMin: row.repMin,
         repMax: row.repMax,
         restSeconds: row.restSeconds,
-        status: row.order === 0 ? 'active' : 'pending',
+        status: index === 0 ? 'active' : 'pending',
         substituted: false,
         substituteOnlyToday: false,
         skipReason: null,
-        notes: '',
+        notes: row.notes,
       }
-      await workoutRepository.saveSessionExercise(item)
-      exercises.push(item)
-    }
+    })
+
+    await commitAll([
+      { collection: 'workoutSessions', data: session },
+      ...exercises.map((item) => ({ collection: 'workoutSessionExercises', data: item })),
+    ])
 
     this.persistLocal({
       session,
@@ -241,14 +257,19 @@ export const workoutService = {
 
   async substituteExercise(params: {
     sessionExercise: WorkoutSessionExercise
-    newExerciseId: string
+    newExercise: Exercise
     onlyToday: boolean
   }): Promise<void> {
     await workoutRepository.updateSessionExercise(params.sessionExercise.id, {
-      exerciseId: params.newExerciseId,
+      exerciseId: params.newExercise.id,
+      exerciseName: params.newExercise.name,
+      muscleGroup: params.newExercise.muscleGroup,
+      equipment: params.newExercise.equipment,
+      youtubeUrl: params.newExercise.youtubeUrl,
+      weightIncrement: params.newExercise.weightIncrement,
       substituted: true,
       substituteOnlyToday: params.onlyToday,
-      notes: `Substituído de ${params.sessionExercise.originalExerciseId}`,
+      notes: `Substituído de ${params.sessionExercise.exerciseName || params.sessionExercise.originalExerciseId}`,
     })
   },
 

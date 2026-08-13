@@ -21,7 +21,6 @@ import type {
   Exercise,
   ExerciseSet,
   ProgressionSummary,
-  RirValue,
   SkipReason,
   WorkoutSession,
   WorkoutSessionExercise,
@@ -31,6 +30,7 @@ import { formatTimer } from '@/utils/dates'
 import { hapticSuccess, hapticRecord } from '@/utils/haptics'
 import { loadLocalSession } from '@/utils/localSession'
 import { pickNextExercise, withMuscle } from '@/utils/muscleOrder'
+import { getLastLoad, saveLastLoad } from '@/utils/exerciseLoad'
 import { workingWeight } from '@/utils/volume'
 import { useAppStore } from '@/store/appStore'
 import { AnimatePresence, motion } from 'framer-motion'
@@ -55,7 +55,6 @@ export function WorkoutModePage() {
   const [elapsed, setElapsed] = useState(0)
   const [weight, setWeight] = useState(0)
   const [reps, setReps] = useState(8)
-  const [rir, setRir] = useState<RirValue>(1)
   const [doneSummary, setDoneSummary] = useState<ProgressionSummary | null>(null)
   const [finished, setFinished] = useState<WorkoutSession | null>(null)
   const [videoOpen, setVideoOpen] = useState(false)
@@ -135,17 +134,43 @@ export function WorkoutModePage() {
 
   useEffect(() => {
     if (!activeProfile || !current) return
+    let alive = true
+    setDoneSummary(null)
+
+    const today = sets
+      .filter((s) => s.sessionExerciseId === current.id && s.completed)
+      .sort((a, b) => a.setNumber - b.setNumber)
+    const remembered = getLastLoad(activeProfile.id, current.exerciseId)
+
+    if (today.length) {
+      const last = today[today.length - 1]
+      setWeight(last.weight)
+      setReps(last.reps)
+    } else if (remembered && remembered.weight > 0) {
+      setWeight(remembered.weight)
+      setReps(remembered.reps || current.repMin)
+    }
+
     workoutService.lastSetsForExercise(activeProfile.id, current.exerciseId, session?.id).then((prev) => {
+      if (!alive) return
       setLastSets(prev)
+      if (today.length) return
+      if (remembered && remembered.weight > 0) return
       if (prev.length) {
-        setWeight(workingWeight(prev))
-        setReps(prev[0]?.reps ?? current.repMin)
+        const last = prev[prev.length - 1]
+        const load = workingWeight(prev)
+        setWeight(load)
+        setReps(last?.reps ?? current.repMin)
+        saveLastLoad(activeProfile.id, current.exerciseId, { weight: load, reps: last?.reps ?? current.repMin })
       } else {
         setWeight(0)
         setReps(current.repMin)
       }
     })
-    setDoneSummary(null)
+
+    return () => {
+      alive = false
+    }
   }, [current?.id, current?.exerciseId, activeProfile?.id, session?.id])
 
   useEffect(() => {
@@ -164,7 +189,20 @@ export function WorkoutModePage() {
     return exerciseService.alternativesOf(exercise, catalog)
   }, [exercise, catalog])
 
-  function persistSnapshot(nextExercises = exercises, nextSets = sets) {
+  function rememberLoad(nextWeight = weight, nextReps = reps) {
+    if (!activeProfile || !current) return
+    saveLastLoad(activeProfile.id, current.exerciseId, { weight: nextWeight, reps: nextReps })
+  }
+
+  function changeWeight(value: number) {
+    setWeight(value)
+    rememberLoad(value, reps)
+  }
+
+  function changeReps(value: number) {
+    setReps(value)
+    rememberLoad(weight, value)
+  }
     if (!session) return
     workoutService.persistLocal({
       session,
@@ -185,13 +223,14 @@ export function WorkoutModePage() {
       setNumber: nextSetNumber,
       weight,
       reps,
-      rir,
+      rir: 1,
       snapshot: { session, exercises, sets, currentExerciseId: currentId, updatedAt: Date.now() },
     })
     const nextSets = [...sets, set]
     setSets(nextSets)
     hapticSuccess()
     persistSnapshot(exercises, nextSets)
+    saveLastLoad(activeProfile.id, current.exerciseId, { weight, reps })
 
     if (nextSetNumber >= current.sets) {
       const summary = await workoutService.completeExercise({
@@ -209,6 +248,35 @@ export function WorkoutModePage() {
       setExercises((items) => items.map((e) => (e.id === current.id ? { ...e, status: 'completed' } : e)))
     } else {
       rest.start(current.restSeconds)
+    }
+  }
+
+  async function changePlannedSets(count: number) {
+    if (!activeProfile || !session || !current) return
+    const completedCount = currentSets.length
+    const nextCount = Math.max(count, completedCount)
+    const updated = { ...current, sets: nextCount }
+    setExercises((items) => items.map((e) => (e.id === current.id ? updated : e)))
+    await workoutService.updateSessionExercise(current.id, { sets: nextCount })
+    persistSnapshot(
+      exercises.map((e) => (e.id === current.id ? updated : e)),
+      sets,
+    )
+
+    if (completedCount > 0 && nextCount <= completedCount) {
+      const summary = await workoutService.completeExercise({
+        profile: activeProfile,
+        session,
+        sessionExercise: updated,
+        todaySets: currentSets,
+      })
+      setDoneSummary(summary)
+      if (summary.kind !== 'none' && summary.kind !== 'first') setProgressions((v) => v + 1)
+      if (summary.isRecord) {
+        setRecords((v) => v + 1)
+        hapticRecord()
+      }
+      setExercises((items) => items.map((e) => (e.id === current.id ? { ...e, status: 'completed', sets: nextCount } : e)))
     }
   }
 
@@ -264,11 +332,25 @@ export function WorkoutModePage() {
     if (!current) return
     await workoutService.substituteExercise({
       sessionExercise: current,
-      newExerciseId: ex.id,
+      newExercise: ex,
       onlyToday: true,
     })
     setExercises((items) =>
-      items.map((e) => (e.id === current.id ? { ...e, exerciseId: ex.id, substituted: true, substituteOnlyToday: true } : e)),
+      items.map((e) =>
+        e.id === current.id
+          ? {
+              ...e,
+              exerciseId: ex.id,
+              exerciseName: ex.name,
+              muscleGroup: ex.muscleGroup,
+              equipment: ex.equipment,
+              youtubeUrl: ex.youtubeUrl,
+              weightIncrement: ex.weightIncrement,
+              substituted: true,
+              substituteOnlyToday: true,
+            }
+          : e,
+      ),
     )
     setReplaceOpen(false)
     setOccupiedOpen(false)
@@ -346,13 +428,19 @@ export function WorkoutModePage() {
     )
   }
 
-  if (!current || !exercise) {
+  if (!current) {
     return (
       <div className="min-h-svh bg-bg p-4">
         <ErrorState message="Não foi possível abrir o exercício atual." onRetry={() => navigate('/')} />
       </div>
     )
   }
+
+  const exerciseName = current.exerciseName || exercise?.name || 'Exercício'
+  const muscleGroup = current.muscleGroup || exercise?.muscleGroup || 'chest'
+  const equipment = current.equipment || exercise?.equipment || 'other'
+  const youtubeUrl = current.youtubeUrl || exercise?.youtubeUrl || ''
+  const weightIncrement = current.weightIncrement || exercise?.weightIncrement || 2
 
   const index = exercises.findIndex((e) => e.id === current.id)
 
@@ -415,9 +503,9 @@ export function WorkoutModePage() {
           exit={{ opacity: 0, y: -12 }}
           transition={{ duration: 0.22 }}
         >
-          <h1 className="mt-8 font-display text-3xl leading-tight sm:text-4xl">{exercise.name}</h1>
+          <h1 className="mt-8 font-display text-3xl leading-tight sm:text-4xl">{exerciseName}</h1>
           <p className="mt-2 text-muted">
-            {MUSCLE_LABELS[exercise.muscleGroup]} · {EQUIPMENT_LABELS[exercise.equipment]}
+            {MUSCLE_LABELS[muscleGroup]} · {EQUIPMENT_LABELS[equipment]}
           </p>
           <p className="mt-4 text-sm">
             Meta: <strong>{current.sets} séries</strong> · <strong>{current.repMin}–{current.repMax} repetições</strong>
@@ -444,13 +532,13 @@ export function WorkoutModePage() {
               </div>
               <SetForm
                 setNumber={nextSetNumber}
+                plannedSets={current.sets}
                 weight={weight}
                 reps={reps}
-                rir={rir}
-                increment={exercise.weightIncrement}
-                onWeight={setWeight}
-                onReps={setReps}
-                onRir={setRir}
+                increment={weightIncrement}
+                onWeight={changeWeight}
+                onReps={changeReps}
+                onPlannedSets={(value) => void changePlannedSets(value)}
                 onComplete={() => void completeSet()}
               />
               <Button className="mt-4 w-full" variant="ghost" onClick={() => setSkipOpen(true)}>
@@ -474,7 +562,7 @@ export function WorkoutModePage() {
         <RestOverlay remaining={rest.remaining} onAdd={() => rest.add(30)} onSkip={rest.skip} />
       ) : null}
 
-      <VideoModal url={exercise.youtubeUrl} open={videoOpen} onClose={() => setVideoOpen(false)} />
+      <VideoModal url={youtubeUrl} open={videoOpen} onClose={() => setVideoOpen(false)} />
       <SkipModal open={skipOpen} onClose={() => setSkipOpen(false)} onReason={(r) => void applySkip(r)} />
       <OccupiedModal
         open={occupiedOpen}

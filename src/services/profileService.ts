@@ -1,13 +1,19 @@
 import { profileRepository, buildProfile, buildProfileMember } from '@/repositories/profileRepository'
 import { seedService } from '@/services/seedService'
-import type { Household, Profile, UserRecord } from '@/types'
+import type { Household, Profile, ProfileAvatar, UserRecord } from '@/types'
+import { auditFields } from '@/utils/audit'
 import { inviteCode, newId } from '@/utils/ids'
+import { avatarFromName } from '@/utils/profileAvatar'
 
-const DEFAULT_PROFILES = ['Pedro', 'Carol'] as const
+const DEFAULT_PROFILES: Array<{ name: string; avatar: ProfileAvatar }> = [
+  { name: 'Pedro', avatar: 'pedro' },
+  { name: 'Carol', avatar: 'carol' },
+  { name: 'Convidado', avatar: 'guest' },
+]
 
 export function sortProfiles(profiles: Profile[]): Profile[] {
   const rank = (name: string) => {
-    const index = DEFAULT_PROFILES.findIndex((item) => item.toLowerCase() === name.toLowerCase())
+    const index = DEFAULT_PROFILES.findIndex((item) => item.name.toLowerCase() === name.toLowerCase())
     return index === -1 ? DEFAULT_PROFILES.length : index
   }
   return [...profiles].sort((a, b) => rank(a.name) - rank(b.name) || a.name.localeCompare(b.name, 'pt-BR'))
@@ -51,26 +57,43 @@ export const profileService = {
   async ensureDefaultProfiles(user: UserRecord): Promise<Profile[]> {
     const current = await this.listAccessibleProfiles(user.id)
     const names = new Set(current.map((item) => item.name.trim().toLowerCase()))
-    for (const name of DEFAULT_PROFILES) {
-      if (names.has(name.toLowerCase())) continue
-      await this.createProfile(user, name, false)
+    for (const def of DEFAULT_PROFILES) {
+      if (names.has(def.name.toLowerCase())) continue
+      await this.createProfile(user, def.name, { seed: false, avatar: def.avatar })
     }
     const profiles = sortProfiles(await this.listAccessibleProfiles(user.id))
     await seedService.ensureHouseholdCatalog(user.householdId)
-    await Promise.all(profiles.map((profile) => seedService.seedProfile(profile.id, user.householdId)))
+    const pedro = profiles.find((profile) => profile.name.trim().toLowerCase() === 'pedro')
+    for (const profile of profiles) {
+      const isGuest = profile.name.trim().toLowerCase() === 'convidado'
+      if (isGuest && pedro && pedro.id !== profile.id) {
+        await seedService.seedProfile(pedro.id, user.householdId)
+        await seedService.seedFromProfile(pedro.id, profile.id, user.householdId)
+      } else {
+        await seedService.seedProfile(profile.id, user.householdId)
+      }
+    }
     return profiles
   },
 
-  async createProfile(user: UserRecord, name: string, seed = true): Promise<Profile> {
+  async createProfile(
+    user: UserRecord,
+    name: string,
+    options: { seed?: boolean; avatar?: ProfileAvatar } = {},
+  ): Promise<Profile> {
+    const seed = options.seed ?? true
     const profile = buildProfile({
       householdId: user.householdId,
       ownerUserId: user.id,
       name,
+      avatar: options.avatar ?? avatarFromName(name),
       weeklyWorkoutGoal: 4,
       calorieGoal: 3500,
       proteinGoal: 180,
       carbGoal: 400,
       fatGoal: 90,
+      heightCm: null,
+      goal: 'bulking',
     })
     await profileRepository.saveProfile(profile)
     await profileRepository.saveMember(buildProfileMember(user.id, profile.id, user.householdId, 'owner'))
@@ -101,11 +124,36 @@ export const profileService = {
     }
   },
 
+  async updateProfile(
+    profileId: string,
+    data: Partial<
+      Pick<
+        Profile,
+        | 'name'
+        | 'heightCm'
+        | 'goal'
+        | 'weeklyWorkoutGoal'
+        | 'calorieGoal'
+        | 'proteinGoal'
+        | 'carbGoal'
+        | 'fatGoal'
+      >
+    >,
+    userId: string,
+  ): Promise<void> {
+    if (data.name != null && !data.name.trim()) throw new Error('Nome não pode ficar vazio.')
+    if (data.heightCm != null && data.heightCm < 0) throw new Error('Altura inválida.')
+    if (data.weeklyWorkoutGoal != null && data.weeklyWorkoutGoal < 0) throw new Error('Meta de treinos inválida.')
+    if (data.calorieGoal != null && data.calorieGoal < 0) throw new Error('Meta de calorias inválida.')
+    await profileRepository.updateProfile(profileId, { ...data, ...auditFields(userId) })
+  },
+
   async updateGoals(
     profileId: string,
     data: Partial<Pick<Profile, 'weeklyWorkoutGoal' | 'calorieGoal' | 'proteinGoal' | 'carbGoal' | 'fatGoal' | 'name'>>,
+    userId?: string,
   ): Promise<void> {
-    await profileRepository.updateProfile(profileId, data)
+    await this.updateProfile(profileId, data, userId ?? '')
   },
 
   subscribeHouseholdProfiles: profileRepository.subscribeHouseholdProfiles,

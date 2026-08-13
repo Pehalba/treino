@@ -1,19 +1,29 @@
 import { AppShell } from '@/components/layout/AppShell'
+import { ProfileAvatar } from '@/components/profile/ProfileAvatar'
 import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
 import { Input } from '@/components/ui/Input'
+import { Select } from '@/components/ui/Select'
+import { Toast } from '@/components/ui/Toast'
+import { useFeedback } from '@/hooks/useFeedback'
 import { useSession } from '@/hooks/useSession'
 import { profileService } from '@/services/profileService'
 import { seedService } from '@/services/seedService'
-import type { ImportPayload } from '@/types'
+import { weightService } from '@/services/weightService'
+import { PROFILE_GOALS, PROFILE_GOAL_LABELS, type ImportPayload, type ProfileGoal } from '@/types'
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 
 export function SettingsPage() {
-  const { user, activeProfile, profiles } = useSession()
+  const { user, activeProfile, patchActiveProfile } = useSession()
+  const { message: toast, show } = useFeedback()
   const [invite, setInvite] = useState('')
   const [joinCode, setJoinCode] = useState('')
   const [newName, setNewName] = useState('')
+  const [name, setName] = useState(activeProfile?.name ?? '')
+  const [height, setHeight] = useState(activeProfile?.heightCm ? String(activeProfile.heightCm) : '')
+  const [weight, setWeight] = useState('')
+  const [goal, setGoal] = useState<ProfileGoal>(activeProfile?.goal ?? 'bulking')
   const [calorieGoal, setCalorieGoal] = useState(activeProfile?.calorieGoal ?? 3500)
   const [proteinGoal, setProteinGoal] = useState(activeProfile?.proteinGoal ?? 180)
   const [carbGoal, setCarbGoal] = useState(activeProfile?.carbGoal ?? 400)
@@ -31,30 +41,52 @@ export function SettingsPage() {
 
   useEffect(() => {
     if (!activeProfile) return
+    setName(activeProfile.name)
+    setHeight(activeProfile.heightCm ? String(activeProfile.heightCm) : '')
+    setGoal(activeProfile.goal ?? 'bulking')
     setCalorieGoal(activeProfile.calorieGoal)
     setProteinGoal(activeProfile.proteinGoal)
     setCarbGoal(activeProfile.carbGoal)
     setFatGoal(activeProfile.fatGoal)
     setWeekly(activeProfile.weeklyWorkoutGoal)
+    weightService.list(activeProfile.id).then((items) => {
+      if (items[0]) setWeight(String(items[0].weight))
+    })
   }, [activeProfile?.id])
 
   async function saveGoals() {
-    if (!activeProfile) return
-    await profileService.updateGoals(activeProfile.id, {
-      calorieGoal,
-      proteinGoal,
-      carbGoal,
-      fatGoal,
-      weeklyWorkoutGoal: weekly,
-    })
-    setMessage('Metas salvas neste perfil.')
+    if (!activeProfile || !user) return
+    try {
+      const patch = {
+        name: name.trim(),
+        heightCm: height ? Number(height) : null,
+        goal,
+        calorieGoal,
+        proteinGoal,
+        carbGoal,
+        fatGoal,
+        weeklyWorkoutGoal: weekly,
+      }
+      await profileService.updateProfile(activeProfile.id, patch, user.id)
+      if (weight.trim()) {
+        const parsed = Number(weight.replace(',', '.'))
+        if (Number.isFinite(parsed) && parsed > 0) {
+          await weightService.logOrUpdateToday({ user, profile: activeProfile, weight: parsed })
+        }
+      }
+      patchActiveProfile(patch)
+      show()
+      setMessage('')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Não foi possível salvar.')
+    }
   }
 
   async function createProfile() {
     if (!user || !newName.trim()) return
     await profileService.createProfile(user, newName.trim())
     setNewName('')
-    setMessage('Perfil criado. Use o seletor no topo para trocar.')
+    setMessage('Perfil criado. Troque em Quem vai treinar.')
   }
 
   async function join() {
@@ -78,15 +110,53 @@ export function SettingsPage() {
 
   return (
     <AppShell title="Perfil">
+      <Toast message={toast} />
       <Card>
         <p className="text-sm text-muted">Quem está usando</p>
-        <p className="text-lg font-semibold">{activeProfile?.name}</p>
-        <p className="mt-1 text-sm text-muted">Troque no topo: {profiles.map((p) => p.name).join(' · ') || '—'}</p>
+        <div className="mt-3 flex items-center gap-3">
+          {activeProfile ? <ProfileAvatar profile={activeProfile} size="md" /> : null}
+          <div>
+            <p className="text-lg font-semibold">{activeProfile?.name}</p>
+            <p className="text-sm text-muted">Toque na foto no topo para trocar de perfil.</p>
+          </div>
+        </div>
+        <Link to="/quem" className="mt-4 block">
+          <Button className="w-full" variant="secondary">
+            Trocar perfil
+          </Button>
+        </Link>
+        <Link to="/painel" className="mt-2 block">
+          <Button className="w-full" variant="secondary">
+            Personalizar painel
+          </Button>
+        </Link>
       </Card>
 
       <Card className="mt-4">
-        <h2 className="font-display text-lg">Metas do perfil ativo</h2>
+        <h2 className="font-display text-lg">Dados e metas</h2>
         <div className="mt-3 grid gap-3 sm:grid-cols-2">
+          <label className="text-sm text-muted">
+            Nome
+            <Input className="mt-1" value={name} onChange={(e) => setName(e.target.value)} />
+          </label>
+          <label className="text-sm text-muted">
+            Objetivo
+            <Select className="mt-1" value={goal} onChange={(e) => setGoal(e.target.value as ProfileGoal)}>
+              {PROFILE_GOALS.map((item) => (
+                <option key={item} value={item}>
+                  {PROFILE_GOAL_LABELS[item]}
+                </option>
+              ))}
+            </Select>
+          </label>
+          <label className="text-sm text-muted">
+            Altura (cm)
+            <Input className="mt-1" type="number" value={height} onChange={(e) => setHeight(e.target.value)} />
+          </label>
+          <label className="text-sm text-muted">
+            Peso atual (kg)
+            <Input className="mt-1" inputMode="decimal" value={weight} onChange={(e) => setWeight(e.target.value)} />
+          </label>
           <label className="text-sm text-muted">
             Treinos/semana
             <Input type="number" className="mt-1" value={weekly} onChange={(e) => setWeekly(Number(e.target.value))} />
@@ -108,15 +178,16 @@ export function SettingsPage() {
             <Input type="number" className="mt-1" value={fatGoal} onChange={(e) => setFatGoal(Number(e.target.value))} />
           </label>
         </div>
+        <p className="mt-3 text-xs text-muted">O peso de hoje é um registro novo. Dias anteriores continuam iguais.</p>
         <Button className="mt-4 w-full" onClick={() => void saveGoals()}>
-          Salvar metas
+          Salvar perfil
         </Button>
       </Card>
 
       <Card className="mt-4">
         <h2 className="font-display text-lg">Perfis neste aparelho</h2>
         <p className="mt-2 text-sm text-muted">
-          Pedro e Carol já vêm prontos. Não precisa entrar com e-mail. Os dados de cada um ficam separados.
+          Pedro, Carol e Convidado já vêm prontos. O convidado usa o mesmo treino do Pedro, com progresso separado.
         </p>
         <Input className="mt-3" placeholder="Outro nome de perfil" value={newName} onChange={(e) => setNewName(e.target.value)} />
         <Button className="mt-3 w-full" variant="secondary" onClick={() => void createProfile()}>

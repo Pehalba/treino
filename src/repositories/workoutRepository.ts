@@ -28,6 +28,9 @@ export const workoutRepository = {
   ): Unsubscribe =>
     subscribeDocs<WorkoutTemplate>('workoutTemplates', [where('profileId', '==', profileId)], (items) => onData(sortByOrder(items)), onError),
   saveTemplate: (template: WorkoutTemplate) => createDoc('workoutTemplates', template),
+  getTemplate: (id: string) => getById<WorkoutTemplate>('workoutTemplates', id),
+  updateTemplate: (id: string, data: Partial<WorkoutTemplate> | Record<string, unknown>) =>
+    patchDoc('workoutTemplates', id, data),
 
   listTemplateExercises: async (templateId: string) =>
     sortByOrder(
@@ -36,6 +39,8 @@ export const workoutRepository = {
   listTemplateExercisesByProfile: (profileId: string) =>
     listDocs<WorkoutTemplateExercise>('workoutTemplateExercises', where('profileId', '==', profileId)),
   saveTemplateExercise: (item: WorkoutTemplateExercise) => createDoc('workoutTemplateExercises', item),
+  updateTemplateExercise: (id: string, data: Partial<WorkoutTemplateExercise> | Record<string, unknown>) =>
+    patchDoc('workoutTemplateExercises', id, data),
 
   getSession: (id: string) => getById<WorkoutSession>('workoutSessions', id),
   saveSession: (session: WorkoutSession) => upsertDoc('workoutSessions', session),

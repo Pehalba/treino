@@ -18,6 +18,16 @@ export const weightService = {
     return entry
   },
 
+  async logOrUpdateToday(params: { user: UserRecord; profile: Profile; weight: number }): Promise<WeightEntry> {
+    const date = todayKey()
+    const existing = (await weightRepository.list(params.profile.id)).find((item) => item.date === date)
+    if (existing) {
+      await weightRepository.update(existing.id, { weight: params.weight, timestamp: Date.now() })
+      return { ...existing, weight: params.weight, timestamp: Date.now() }
+    }
+    return this.logWeight({ ...params, date })
+  },
+
   sevenDayAverage(entries: WeightEntry[]): number | null {
     const recent = [...entries].sort((a, b) => b.date.localeCompare(a.date)).slice(0, 7)
     if (recent.length === 0) return null

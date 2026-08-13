@@ -1,11 +1,15 @@
 import { Navigate, Outlet, Route, Routes } from 'react-router-dom'
 import { ForgotPasswordPage, LoginPage, SignupPage } from '@/features/auth/AuthPages'
+import { ProfilePickerPage } from '@/features/auth/ProfilePickerPage'
 import { CaloriesPage } from '@/features/calories/CaloriesPage'
+import { DietEditPage } from '@/features/diet/DietEditPage'
 import { DietPage } from '@/features/diet/DietPage'
+import { DashboardCustomizePage } from '@/features/home/DashboardCustomizePage'
 import { HomePage } from '@/features/home/HomePage'
 import { ReportsPage } from '@/features/reports/ReportsPage'
 import { SettingsPage } from '@/features/settings/SettingsPage'
 import { ExerciseHistoryPage } from '@/features/workout/ExerciseHistoryPage'
+import { WorkoutEditPage } from '@/features/workout/WorkoutEditPage'
 import { WorkoutModePage } from '@/features/workout/WorkoutModePage'
 import { WorkoutsPage } from '@/features/workout/WorkoutsPage'
 import { isFirebaseConfigured } from '@/firebase/config'
@@ -38,6 +42,12 @@ function Guard() {
   return <Outlet />
 }
 
+function ProfileGuard() {
+  const { activeProfile } = useSession()
+  if (!activeProfile) return <Navigate to="/quem" replace />
+  return <Outlet />
+}
+
 export default function App() {
   useAuthBootstrap()
 
@@ -49,15 +59,21 @@ export default function App() {
       <Route path="/cadastro" element={<SignupPage />} />
       <Route path="/recuperar" element={<ForgotPasswordPage />} />
       <Route element={<Guard />}>
-        <Route path="/" element={<HomePage />} />
-        <Route path="/treino" element={<WorkoutsPage />} />
-        <Route path="/treino/:sessionId" element={<WorkoutModePage />} />
-        <Route path="/treino/:sessionId/resumo" element={<WorkoutModePage />} />
-        <Route path="/exercicio/:exerciseId" element={<ExerciseHistoryPage />} />
-        <Route path="/calorias" element={<CaloriesPage />} />
-        <Route path="/dietas" element={<DietPage />} />
-        <Route path="/relatorios" element={<ReportsPage />} />
-        <Route path="/perfil" element={<SettingsPage />} />
+        <Route path="/quem" element={<ProfilePickerPage />} />
+        <Route element={<ProfileGuard />}>
+          <Route path="/" element={<HomePage />} />
+          <Route path="/painel" element={<DashboardCustomizePage />} />
+          <Route path="/treino" element={<WorkoutsPage />} />
+          <Route path="/treinos/:templateId/editar" element={<WorkoutEditPage />} />
+          <Route path="/treino/:sessionId" element={<WorkoutModePage />} />
+          <Route path="/treino/:sessionId/resumo" element={<WorkoutModePage />} />
+          <Route path="/exercicio/:exerciseId" element={<ExerciseHistoryPage />} />
+          <Route path="/calorias" element={<CaloriesPage />} />
+          <Route path="/dietas" element={<DietPage />} />
+          <Route path="/dietas/editar" element={<DietEditPage />} />
+          <Route path="/relatorios" element={<ReportsPage />} />
+          <Route path="/perfil" element={<SettingsPage />} />
+        </Route>
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

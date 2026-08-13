@@ -9,15 +9,19 @@ export const dietService = {
     meals: Array<DietMeal & { items: DietMealItem[] }>
   }> {
     const plans = await nutritionRepository.listPlans(profileId)
-    const plan = plans.find((p) => p.isActive) ?? plans[0] ?? null
+    const plan = plans.find((p) => p.isActive && !p.archivedAt) ?? plans.find((p) => !p.archivedAt) ?? null
     if (!plan) return { plan: null, meals: [] }
     const meals = await nutritionRepository.listMeals(plan.id)
     const items = await nutritionRepository.listMealItemsByProfile(profileId)
     return {
       plan,
-      meals: meals.map((meal) => ({
+      meals: meals
+        .filter((meal) => meal.active !== false && !meal.archivedAt)
+        .map((meal) => ({
         ...meal,
-        items: items.filter((item) => item.dietMealId === meal.id).sort((a, b) => a.order - b.order),
+        items: items
+          .filter((item) => item.dietMealId === meal.id && item.active !== false && !item.archivedAt)
+          .sort((a, b) => a.order - b.order),
       })),
     }
   },

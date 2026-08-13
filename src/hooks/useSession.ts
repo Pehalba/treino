@@ -3,7 +3,8 @@ import { isFirebaseConfigured } from '@/firebase/config'
 import { authService } from '@/services/authService'
 import { profileService, sortProfiles } from '@/services/profileService'
 import { useAppStore } from '@/store/appStore'
-import { loadActiveProfileId, saveActiveProfileId } from '@/utils/localSession'
+import { saveActiveProfileId, loadActiveProfileId } from '@/utils/localSession'
+import type { Profile } from '@/types'
 
 export function useAuthBootstrap(): void {
   const setFirebaseUser = useAppStore((s) => s.setFirebaseUser)
@@ -37,7 +38,7 @@ export function useAuthBootstrap(): void {
       setBootstrapping(true)
       setFirebaseUser(firebaseUser)
       try {
-        const { user, profile } = await profileService.bootstrapUser(
+        const { user } = await profileService.bootstrapUser(
           firebaseUser.uid,
           firebaseUser.email ?? '',
           firebaseUser.displayName ?? 'Pedro & Carol',
@@ -48,7 +49,11 @@ export function useAuthBootstrap(): void {
         if (cancelled) return
         setProfiles(profiles)
         const savedId = loadActiveProfileId(user.id)
-        const active = profiles.find((p) => p.id === savedId) ?? profiles.find((p) => p.id === profile.id) ?? profiles[0]
+        const current = useAppStore.getState().activeProfile
+        const active =
+          (current && profiles.find((p) => p.id === current.id)) ||
+          profiles.find((p) => p.id === savedId) ||
+          null
         if (active) {
           setActiveProfile(active)
           saveActiveProfileId(user.id, active.id)
@@ -83,6 +88,7 @@ export function useSession() {
   const activeProfile = useAppStore((s) => s.activeProfile)
   const bootstrapping = useAppStore((s) => s.bootstrapping)
   const setActiveProfile = useAppStore((s) => s.setActiveProfile)
+  const setProfiles = useAppStore((s) => s.setProfiles)
 
   function selectProfile(profileId: string) {
     const profile = profiles.find((p) => p.id === profileId)
@@ -91,5 +97,12 @@ export function useSession() {
     saveActiveProfileId(user.id, profile.id)
   }
 
-  return { firebaseUser, user, profiles, activeProfile, bootstrapping, selectProfile }
+  function patchActiveProfile(data: Partial<Profile>) {
+    if (!activeProfile) return
+    const next = { ...activeProfile, ...data }
+    setActiveProfile(next)
+    setProfiles(profiles.map((item) => (item.id === next.id ? next : item)))
+  }
+
+  return { firebaseUser, user, profiles, activeProfile, bootstrapping, selectProfile, patchActiveProfile }
 }

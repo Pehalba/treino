@@ -29,6 +29,6 @@ export function withMuscle<T extends WorkoutSessionExercise>(
 ): Array<T & { muscleGroup: MuscleGroup }> {
   return items.map((item) => ({
     ...item,
-    muscleGroup: muscleByExerciseId.get(item.exerciseId) ?? 'chest',
+    muscleGroup: item.muscleGroup ?? muscleByExerciseId.get(item.exerciseId) ?? 'chest',
   }))
 }

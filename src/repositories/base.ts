@@ -12,6 +12,7 @@ import {
   type DocumentData,
   type QueryConstraint,
   type Unsubscribe,
+  type UpdateData,
 } from 'firebase/firestore'
 import { getDb } from '@/firebase/app'
 
@@ -34,7 +35,7 @@ export async function upsertDoc<T extends { id: string }>(
 export async function patchDoc(
   collectionName: string,
   id: string,
-  data: Record<string, unknown>,
+  data: UpdateData<DocumentData>,
 ): Promise<void> {
   await updateDoc(doc(getDb(), collectionName, id), data)
 }
@@ -93,6 +94,18 @@ export async function deleteAll(items: Array<{ collection: string; id: string }>
     const batch = writeBatch(db)
     for (const item of items.slice(i, i + size)) {
       batch.delete(doc(db, item.collection, item.id))
+    }
+    await batch.commit()
+  }
+}
+
+export async function patchMany(items: Array<{ collection: string; id: string; data: UpdateData<DocumentData> }>): Promise<void> {
+  const db = getDb()
+  const size = 450
+  for (let i = 0; i < items.length; i += size) {
+    const batch = writeBatch(db)
+    for (const item of items.slice(i, i + size)) {
+      batch.update(doc(db, item.collection, item.id), item.data)
     }
     await batch.commit()
   }

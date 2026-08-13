@@ -1,7 +1,7 @@
 import { Button } from '@/components/ui/Button'
 import { Modal } from '@/components/ui/Modal'
 import { NumberStepper } from '@/components/ui/NumberStepper'
-import { EQUIPMENT_LABELS, MUSCLE_LABELS, type Exercise, type ExerciseSet, type RirValue, type SkipReason } from '@/types'
+import { EQUIPMENT_LABELS, MUSCLE_LABELS, type Exercise, type ExerciseSet, type SkipReason } from '@/types'
 import { formatKg, formatNumber } from '@/utils/format'
 import { youtubeEmbedUrl, youtubeWatchUrl } from '@/utils/ids'
 import { repsPattern, workingWeight } from '@/utils/volume'
@@ -48,45 +48,49 @@ export function LastTime({ sets }: { sets: ExerciseSet[] }) {
 
 export function SetForm({
   setNumber,
+  plannedSets,
   weight,
   reps,
-  rir,
   increment,
   onWeight,
   onReps,
-  onRir,
+  onPlannedSets,
   onComplete,
 }: {
   setNumber: number
+  plannedSets: number
   weight: number
   reps: number
-  rir: RirValue
   increment: number
   onWeight: (v: number) => void
   onReps: (v: number) => void
-  onRir: (v: RirValue) => void
+  onPlannedSets: (v: number) => void
   onComplete: () => void
 }) {
   return (
     <section className="mt-5 rounded-3xl bg-card p-4">
-      <h3 className="font-display text-lg">Série {setNumber}</h3>
+      <h3 className="font-display text-lg">
+        Série {setNumber} de {plannedSets}
+      </h3>
       <p className="mt-3 text-sm text-muted">Carga</p>
       <NumberStepper value={weight} onChange={onWeight} step={increment} suffix="kg" />
       <p className="mt-4 text-sm text-muted">Repetições</p>
       <NumberStepper value={reps} onChange={onReps} step={1} min={0} />
-      <p className="mt-4 text-sm text-muted">RIR</p>
+      <p className="mt-4 text-sm text-muted">Quantas séries vou fazer</p>
       <div className="mt-2 grid grid-cols-4 gap-2">
-        {([0, 1, 2, 3] as RirValue[]).map((value) => (
+        {[2, 3, 4, 5].map((value) => (
           <button
             key={value}
             type="button"
-            onClick={() => onRir(value)}
+            onClick={() => onPlannedSets(value)}
             className={cn(
-              'min-h-12 rounded-2xl bg-card2 text-sm font-semibold',
-              rir === value && 'bg-accent text-bg',
+              'min-h-12 rounded-2xl text-sm font-semibold',
+              plannedSets === value
+                ? 'bg-accent font-bold text-[#08090B]'
+                : 'bg-card2 text-ink',
             )}
           >
-            {value === 3 ? '3+' : value}
+            {value}
           </button>
         ))}
       </div>

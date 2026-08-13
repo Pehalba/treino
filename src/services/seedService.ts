@@ -30,6 +30,8 @@ export const seedService = {
         defaultRestSeconds: item.defaultRestSeconds,
         weightIncrement: item.weightIncrement,
         isPlaceholder: true,
+        active: true,
+        archivedAt: null,
         createdAt: Date.now(),
       })
     }
@@ -88,6 +90,8 @@ export const seedService = {
             repMax: exercise.defaultRepMax,
             restSeconds: exercise.defaultRestSeconds,
             notes: '',
+            active: true,
+            archivedAt: null,
           }
           exerciseOrder += 1
           docs.push({ collection: 'workoutTemplateExercises', data: row })
@@ -103,14 +107,60 @@ export const seedService = {
     if (docs.length > 0) await commitAll(docs)
   },
 
+  async seedFromProfile(sourceProfileId: string, targetProfileId: string, householdId: string): Promise<void> {
+    const existing = await workoutRepository.listTemplates(targetProfileId)
+    if (existing.length > 0) {
+      await this.seedProfile(targetProfileId, householdId)
+      return
+    }
+
+    const sourceTemplates = await workoutRepository.listTemplates(sourceProfileId)
+    if (sourceTemplates.length === 0) {
+      await this.seedProfile(targetProfileId, householdId)
+      return
+    }
+
+    const sourceRows = await workoutRepository.listTemplateExercisesByProfile(sourceProfileId)
+    const docs: Array<{ collection: string; data: { id: string } }> = []
+    for (const template of sourceTemplates) {
+      const copy: WorkoutTemplate = {
+        ...template,
+        id: newId(),
+        profileId: targetProfileId,
+        householdId,
+        createdAt: Date.now(),
+      }
+      docs.push({ collection: 'workoutTemplates', data: copy })
+      for (const row of sourceRows.filter((item) => item.templateId === template.id)) {
+        docs.push({
+          collection: 'workoutTemplateExercises',
+          data: {
+            ...row,
+            id: newId(),
+            profileId: targetProfileId,
+            householdId,
+            templateId: copy.id,
+          },
+        })
+      }
+    }
+
+    const plans = await nutritionRepository.listPlans(targetProfileId)
+    if (plans.length === 0) docs.push(...this.dietDocs(targetProfileId, householdId))
+    if (docs.length > 0) await commitAll(docs)
+  },
+
   dietDocs(profileId: string, householdId: string): Array<{ collection: string; data: DietPlan | DietMeal | DietMealItem }> {
     const plan: DietPlan = {
       id: newId(),
       profileId,
       householdId,
       name: PLACEHOLDER_DIET.name,
+      calorieGoal: null,
+      notes: '',
       isActive: true,
       isPlaceholder: true,
+      archivedAt: null,
       createdAt: Date.now(),
     }
     const docs: Array<{ collection: string; data: DietPlan | DietMeal | DietMealItem }> = [
@@ -126,6 +176,9 @@ export const seedService = {
         category: mealDef.category,
         order: mealOrder,
         name: mealDef.name,
+        notes: '',
+        active: true,
+        archivedAt: null,
       }
       mealOrder += 1
       docs.push({ collection: 'dietMeals', data: meal })
@@ -144,7 +197,11 @@ export const seedService = {
             carbs: item.carbs,
             fat: item.fat,
             quantityLabel: item.quantityLabel,
+            notes: '',
+            substitutes: [],
             order: itemOrder,
+            active: true,
+            archivedAt: null,
           },
         })
         itemOrder += 1
