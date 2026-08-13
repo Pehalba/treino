@@ -1,4 +1,5 @@
 import { PLACEHOLDER_DIET, PLACEHOLDER_EXERCISES, PLACEHOLDER_TEMPLATES } from '@/data/placeholders'
+import { commitAll } from '@/repositories/base'
 import { exerciseRepository } from '@/repositories/exerciseRepository'
 import { nutritionRepository } from '@/repositories/nutritionRepository'
 import { workoutRepository } from '@/repositories/workoutRepository'
@@ -14,7 +15,7 @@ export const seedService = {
 
     const byKey = new Map<string, Exercise>()
     for (const item of PLACEHOLDER_EXERCISES) {
-      const exercise: Exercise = {
+      byKey.set(item.key, {
         id: newId(),
         householdId,
         name: item.name,
@@ -30,30 +31,32 @@ export const seedService = {
         weightIncrement: item.weightIncrement,
         isPlaceholder: true,
         createdAt: Date.now(),
-      }
-      byKey.set(item.key, exercise)
+      })
     }
 
+    const docs: Array<{ collection: string; data: Exercise }> = []
     for (const item of PLACEHOLDER_EXERCISES) {
       const exercise = byKey.get(item.key)
       if (!exercise) continue
       exercise.alternativeIds = item.alternativeKeys
         .map((key) => byKey.get(key)?.id)
         .filter((id): id is string => Boolean(id))
-      await exerciseRepository.save(exercise)
+      docs.push({ collection: 'exercises', data: exercise })
     }
+    await commitAll(docs)
 
     return new Map([...byKey.values()].map((item) => [item.name.toLowerCase(), item]))
   },
 
   async seedProfile(profileId: string, householdId: string): Promise<void> {
-    await this.ensureHouseholdCatalog(householdId)
+    const catalog = await this.ensureHouseholdCatalog(householdId)
     const templates = await workoutRepository.listTemplates(profileId)
+    const docs: Array<{ collection: string; data: { id: string } }> = []
+
     if (templates.length === 0) {
       const byKey = new Map<string, Exercise>()
-      const exercises = await exerciseRepository.listByHousehold(householdId)
       for (const placeholder of PLACEHOLDER_EXERCISES) {
-        const found = exercises.find((e) => e.name === placeholder.name)
+        const found = [...catalog.values()].find((e) => e.name === placeholder.name)
         if (found) byKey.set(placeholder.key, found)
       }
 
@@ -68,7 +71,7 @@ export const seedService = {
           createdAt: Date.now(),
         }
         order += 1
-        await workoutRepository.saveTemplate(template)
+        docs.push({ collection: 'workoutTemplates', data: template })
         let exerciseOrder = 0
         for (const key of templateDef.exerciseKeys) {
           const exercise = byKey.get(key)
@@ -87,18 +90,20 @@ export const seedService = {
             notes: '',
           }
           exerciseOrder += 1
-          await workoutRepository.saveTemplateExercise(row)
+          docs.push({ collection: 'workoutTemplateExercises', data: row })
         }
       }
     }
 
     const plans = await nutritionRepository.listPlans(profileId)
     if (plans.length === 0) {
-      await this.seedPlaceholderDiet(profileId, householdId)
+      docs.push(...this.dietDocs(profileId, householdId))
     }
+
+    if (docs.length > 0) await commitAll(docs)
   },
 
-  async seedPlaceholderDiet(profileId: string, householdId: string): Promise<void> {
+  dietDocs(profileId: string, householdId: string): Array<{ collection: string; data: DietPlan | DietMeal | DietMealItem }> {
     const plan: DietPlan = {
       id: newId(),
       profileId,
@@ -108,7 +113,9 @@ export const seedService = {
       isPlaceholder: true,
       createdAt: Date.now(),
     }
-    await nutritionRepository.savePlan(plan)
+    const docs: Array<{ collection: string; data: DietPlan | DietMeal | DietMealItem }> = [
+      { collection: 'dietPlans', data: plan },
+    ]
     let mealOrder = 0
     for (const mealDef of PLACEHOLDER_DIET.meals) {
       const meal: DietMeal = {
@@ -121,26 +128,33 @@ export const seedService = {
         name: mealDef.name,
       }
       mealOrder += 1
-      await nutritionRepository.saveMeal(meal)
+      docs.push({ collection: 'dietMeals', data: meal })
       let itemOrder = 0
       for (const item of mealDef.items) {
-        const row: DietMealItem = {
-          id: newId(),
-          profileId,
-          householdId,
-          dietMealId: meal.id,
-          foodName: item.foodName,
-          calories: item.calories,
-          protein: item.protein,
-          carbs: item.carbs,
-          fat: item.fat,
-          quantityLabel: item.quantityLabel,
-          order: itemOrder,
-        }
+        docs.push({
+          collection: 'dietMealItems',
+          data: {
+            id: newId(),
+            profileId,
+            householdId,
+            dietMealId: meal.id,
+            foodName: item.foodName,
+            calories: item.calories,
+            protein: item.protein,
+            carbs: item.carbs,
+            fat: item.fat,
+            quantityLabel: item.quantityLabel,
+            order: itemOrder,
+          },
+        })
         itemOrder += 1
-        await nutritionRepository.saveMealItem(row)
       }
     }
+    return docs
+  },
+
+  async seedPlaceholderDiet(profileId: string, householdId: string): Promise<void> {
+    await commitAll(this.dietDocs(profileId, householdId))
   },
 
   async importPayload(
@@ -148,9 +162,10 @@ export const seedService = {
     householdId: string,
     payload: ImportPayload,
   ): Promise<void> {
-    const catalog = new Map<string, Exercise>()
+    const catalog = await this.ensureHouseholdCatalog(householdId)
     const existing = await exerciseRepository.listByHousehold(householdId)
     for (const item of existing) catalog.set(item.name.toLowerCase(), item)
+    const docs: Array<{ collection: string; data: { id: string } }> = []
 
     for (const item of payload.exercises ?? []) {
       const current = catalog.get(item.name.toLowerCase())
@@ -186,14 +201,13 @@ export const seedService = {
         isPlaceholder: false,
         createdAt: Date.now(),
       }
-      await exerciseRepository.save(exercise)
+      docs.push({ collection: 'exercises', data: exercise })
       catalog.set(exercise.name.toLowerCase(), exercise)
     }
 
     if (payload.templates) {
       const currentTemplates = await workoutRepository.listTemplates(profileId)
-      const startOrder = currentTemplates.length
-      let order = startOrder
+      let order = currentTemplates.length
       for (const templateDef of payload.templates) {
         const template: WorkoutTemplate = {
           id: newId(),
@@ -204,23 +218,26 @@ export const seedService = {
           createdAt: Date.now(),
         }
         order += 1
-        await workoutRepository.saveTemplate(template)
+        docs.push({ collection: 'workoutTemplates', data: template })
         let exerciseOrder = 0
         for (const row of templateDef.exercises) {
           const exercise = catalog.get(row.exerciseName.toLowerCase())
           if (!exercise) continue
-          await workoutRepository.saveTemplateExercise({
-            id: newId(),
-            profileId,
-            householdId,
-            templateId: template.id,
-            exerciseId: exercise.id,
-            order: exerciseOrder,
-            sets: row.sets ?? exercise.defaultSets,
-            repMin: row.repMin ?? exercise.defaultRepMin,
-            repMax: row.repMax ?? exercise.defaultRepMax,
-            restSeconds: row.restSeconds ?? exercise.defaultRestSeconds,
-            notes: '',
+          docs.push({
+            collection: 'workoutTemplateExercises',
+            data: {
+              id: newId(),
+              profileId,
+              householdId,
+              templateId: template.id,
+              exerciseId: exercise.id,
+              order: exerciseOrder,
+              sets: row.sets ?? exercise.defaultSets,
+              repMin: row.repMin ?? exercise.defaultRepMin,
+              repMax: row.repMax ?? exercise.defaultRepMax,
+              restSeconds: row.restSeconds ?? exercise.defaultRestSeconds,
+              notes: '',
+            },
           })
           exerciseOrder += 1
         }
@@ -237,7 +254,7 @@ export const seedService = {
         isPlaceholder: false,
         createdAt: Date.now(),
       }
-      await nutritionRepository.savePlan(plan)
+      docs.push({ collection: 'dietPlans', data: plan })
       let mealOrder = 0
       for (const mealDef of payload.diet.meals) {
         const meal: DietMeal = {
@@ -250,25 +267,30 @@ export const seedService = {
           name: mealDef.name ?? mealDef.category,
         }
         mealOrder += 1
-        await nutritionRepository.saveMeal(meal)
+        docs.push({ collection: 'dietMeals', data: meal })
         let itemOrder = 0
         for (const item of mealDef.items) {
-          await nutritionRepository.saveMealItem({
-            id: newId(),
-            profileId,
-            householdId,
-            dietMealId: meal.id,
-            foodName: item.foodName,
-            calories: item.calories,
-            protein: item.protein,
-            carbs: item.carbs,
-            fat: item.fat,
-            quantityLabel: item.quantityLabel ?? '',
-            order: itemOrder,
+          docs.push({
+            collection: 'dietMealItems',
+            data: {
+              id: newId(),
+              profileId,
+              householdId,
+              dietMealId: meal.id,
+              foodName: item.foodName,
+              calories: item.calories,
+              protein: item.protein,
+              carbs: item.carbs,
+              fat: item.fat,
+              quantityLabel: item.quantityLabel ?? '',
+              order: itemOrder,
+            },
           })
           itemOrder += 1
         }
       }
     }
+
+    if (docs.length > 0) await commitAll(docs)
   },
 }

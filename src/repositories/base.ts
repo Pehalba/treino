@@ -8,6 +8,7 @@ import {
   query,
   setDoc,
   updateDoc,
+  writeBatch,
   type DocumentData,
   type QueryConstraint,
   type Unsubscribe,
@@ -71,6 +72,18 @@ export function subscribeDocs<T>(
     },
     (error) => onError?.(error),
   )
+}
+
+export async function commitAll(items: Array<{ collection: string; data: { id: string } }>): Promise<void> {
+  const db = getDb()
+  const size = 450
+  for (let i = 0; i < items.length; i += size) {
+    const batch = writeBatch(db)
+    for (const item of items.slice(i, i + size)) {
+      batch.set(doc(db, item.collection, item.data.id), item.data)
+    }
+    await batch.commit()
+  }
 }
 
 export function asRecord(data: DocumentData): Record<string, unknown> {

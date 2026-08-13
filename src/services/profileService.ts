@@ -53,16 +53,15 @@ export const profileService = {
     const names = new Set(current.map((item) => item.name.trim().toLowerCase()))
     for (const name of DEFAULT_PROFILES) {
       if (names.has(name.toLowerCase())) continue
-      await this.createProfile(user, name)
+      await this.createProfile(user, name, false)
     }
     const profiles = sortProfiles(await this.listAccessibleProfiles(user.id))
-    for (const profile of profiles) {
-      await seedService.seedProfile(profile.id, user.householdId)
-    }
+    await seedService.ensureHouseholdCatalog(user.householdId)
+    await Promise.all(profiles.map((profile) => seedService.seedProfile(profile.id, user.householdId)))
     return profiles
   },
 
-  async createProfile(user: UserRecord, name: string): Promise<Profile> {
+  async createProfile(user: UserRecord, name: string, seed = true): Promise<Profile> {
     const profile = buildProfile({
       householdId: user.householdId,
       ownerUserId: user.id,
@@ -75,7 +74,7 @@ export const profileService = {
     })
     await profileRepository.saveProfile(profile)
     await profileRepository.saveMember(buildProfileMember(user.id, profile.id, user.householdId, 'owner'))
-    await seedService.seedProfile(profile.id, user.householdId)
+    if (seed) await seedService.seedProfile(profile.id, user.householdId)
     return profile
   },
 

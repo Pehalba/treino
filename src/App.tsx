@@ -10,7 +10,6 @@ import { WorkoutModePage } from '@/features/workout/WorkoutModePage'
 import { WorkoutsPage } from '@/features/workout/WorkoutsPage'
 import { isFirebaseConfigured } from '@/firebase/config'
 import { useAuthBootstrap, useSession } from '@/hooks/useSession'
-import { Skeleton } from '@/components/ui/Skeleton'
 
 function MissingFirebase() {
   return (
@@ -23,17 +22,19 @@ function MissingFirebase() {
   )
 }
 
+function BootScreen() {
+  return (
+    <div className="flex min-h-svh flex-col items-center justify-center bg-bg px-6 text-center">
+      <p className="text-xs font-semibold tracking-[0.2em] text-accent uppercase">Pedro & Carol</p>
+      <h1 className="mt-3 font-display text-2xl">Preparando seus treinos</h1>
+      <p className="mt-2 max-w-xs text-sm text-muted">Na primeira vez isso pode levar alguns segundos.</p>
+    </div>
+  )
+}
+
 function Guard() {
   const { firebaseUser, bootstrapping } = useSession()
-  if (bootstrapping || !firebaseUser) {
-    return (
-      <div className="space-y-3 p-4">
-        <Skeleton className="h-12 w-40" />
-        <Skeleton className="h-40" />
-        <Skeleton className="h-40" />
-      </div>
-    )
-  }
+  if (bootstrapping || !firebaseUser) return <BootScreen />
   return <Outlet />
 }
 
