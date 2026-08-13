@@ -1,0 +1,64 @@
+import { Navigate, Outlet, Route, Routes } from 'react-router-dom'
+import { ForgotPasswordPage, LoginPage, SignupPage } from '@/features/auth/AuthPages'
+import { CaloriesPage } from '@/features/calories/CaloriesPage'
+import { DietPage } from '@/features/diet/DietPage'
+import { HomePage } from '@/features/home/HomePage'
+import { ReportsPage } from '@/features/reports/ReportsPage'
+import { SettingsPage } from '@/features/settings/SettingsPage'
+import { ExerciseHistoryPage } from '@/features/workout/ExerciseHistoryPage'
+import { WorkoutModePage } from '@/features/workout/WorkoutModePage'
+import { WorkoutsPage } from '@/features/workout/WorkoutsPage'
+import { isFirebaseConfigured } from '@/firebase/config'
+import { useAuthBootstrap, useSession } from '@/hooks/useSession'
+import { Skeleton } from '@/components/ui/Skeleton'
+
+function MissingFirebase() {
+  return (
+    <div className="mx-auto flex min-h-svh max-w-lg flex-col justify-center px-5">
+      <h1 className="font-display text-3xl">Configure o Firebase</h1>
+      <p className="mt-3 text-muted">
+        Copie <code>.env.example</code> para <code>.env</code> e preencha as chaves do projeto. Depois reinicie o servidor.
+      </p>
+    </div>
+  )
+}
+
+function Guard() {
+  const { firebaseUser, bootstrapping } = useSession()
+  if (bootstrapping || !firebaseUser) {
+    return (
+      <div className="space-y-3 p-4">
+        <Skeleton className="h-12 w-40" />
+        <Skeleton className="h-40" />
+        <Skeleton className="h-40" />
+      </div>
+    )
+  }
+  return <Outlet />
+}
+
+export default function App() {
+  useAuthBootstrap()
+
+  if (!isFirebaseConfigured()) return <MissingFirebase />
+
+  return (
+    <Routes>
+      <Route path="/login" element={<LoginPage />} />
+      <Route path="/cadastro" element={<SignupPage />} />
+      <Route path="/recuperar" element={<ForgotPasswordPage />} />
+      <Route element={<Guard />}>
+        <Route path="/" element={<HomePage />} />
+        <Route path="/treino" element={<WorkoutsPage />} />
+        <Route path="/treino/:sessionId" element={<WorkoutModePage />} />
+        <Route path="/treino/:sessionId/resumo" element={<WorkoutModePage />} />
+        <Route path="/exercicio/:exerciseId" element={<ExerciseHistoryPage />} />
+        <Route path="/calorias" element={<CaloriesPage />} />
+        <Route path="/dietas" element={<DietPage />} />
+        <Route path="/relatorios" element={<ReportsPage />} />
+        <Route path="/perfil" element={<SettingsPage />} />
+      </Route>
+      <Route path="*" element={<Navigate to="/" replace />} />
+    </Routes>
+  )
+}

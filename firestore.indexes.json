@@ -1,0 +1,96 @@
+{
+  "indexes": [
+    {
+      "collectionGroup": "workoutTemplates",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "profileId", "order": "ASCENDING" },
+        { "fieldPath": "order", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "workoutTemplateExercises",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "templateId", "order": "ASCENDING" },
+        { "fieldPath": "order", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "workoutSessions",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "profileId", "order": "ASCENDING" },
+        { "fieldPath": "startedAt", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "workoutSessions",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "profileId", "order": "ASCENDING" },
+        { "fieldPath": "completed", "order": "ASCENDING" },
+        { "fieldPath": "startedAt", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "workoutSessionExercises",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "workoutSessionId", "order": "ASCENDING" },
+        { "fieldPath": "order", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "exerciseSets",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "profileId", "order": "ASCENDING" },
+        { "fieldPath": "exerciseId", "order": "ASCENDING" },
+        { "fieldPath": "createdAt", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "exerciseSets",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "workoutSessionId", "order": "ASCENDING" },
+        { "fieldPath": "setNumber", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "foodLogs",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "profileId", "order": "ASCENDING" },
+        { "fieldPath": "date", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "weightEntries",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "profileId", "order": "ASCENDING" },
+        { "fieldPath": "date", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "personalRecords",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "profileId", "order": "ASCENDING" },
+        { "fieldPath": "exerciseId", "order": "ASCENDING" },
+        { "fieldPath": "type", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "dietMeals",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "dietPlanId", "order": "ASCENDING" },
+        { "fieldPath": "order", "order": "ASCENDING" }
+      ]
+    }
+  ],
+  "fieldOverrides": []
+}

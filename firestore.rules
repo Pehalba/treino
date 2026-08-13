@@ -1,0 +1,142 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function userData() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    function sameHousehold(data) {
+      return signedIn()
+        && 'householdId' in data
+        && userData().householdId == data.householdId;
+    }
+
+    match /users/{uid} {
+      allow read: if signedIn() && (
+        request.auth.uid == uid ||
+        userData().householdId == resource.data.householdId
+      );
+      allow create: if signedIn() && request.auth.uid == uid;
+      allow update: if signedIn() && request.auth.uid == uid;
+    }
+
+    match /households/{id} {
+      allow read: if signedIn() && resource.data.id == userData().householdId;
+      allow create: if signedIn();
+      allow update: if signedIn() && resource.data.id == userData().householdId;
+    }
+
+    match /householdInvites/{code} {
+      allow read: if signedIn();
+      allow create: if signedIn();
+      allow update, delete: if signedIn() && resource.data.householdId == userData().householdId;
+    }
+
+    match /profiles/{id} {
+      allow read: if sameHousehold(resource.data);
+      allow create: if sameHousehold(request.resource.data);
+      allow update, delete: if sameHousehold(resource.data) && sameHousehold(request.resource.data);
+    }
+
+    match /profileMembers/{id} {
+      allow read: if sameHousehold(resource.data) || resource.data.userId == request.auth.uid;
+      allow create: if signedIn() && request.resource.data.userId == request.auth.uid
+        || sameHousehold(request.resource.data);
+      allow update, delete: if sameHousehold(resource.data);
+    }
+
+    match /exercises/{id} {
+      allow read: if sameHousehold(resource.data);
+      allow create: if sameHousehold(request.resource.data);
+      allow update, delete: if sameHousehold(resource.data) && sameHousehold(request.resource.data);
+    }
+
+    match /workoutTemplates/{id} {
+      allow read: if sameHousehold(resource.data);
+      allow create: if sameHousehold(request.resource.data);
+      allow update, delete: if sameHousehold(resource.data) && sameHousehold(request.resource.data);
+    }
+
+    match /workoutTemplateExercises/{id} {
+      allow read: if sameHousehold(resource.data);
+      allow create: if sameHousehold(request.resource.data);
+      allow update, delete: if sameHousehold(resource.data) && sameHousehold(request.resource.data);
+    }
+
+    match /workoutSessions/{id} {
+      allow read: if sameHousehold(resource.data);
+      allow create: if sameHousehold(request.resource.data);
+      allow update, delete: if sameHousehold(resource.data) && sameHousehold(request.resource.data);
+    }
+
+    match /workoutSessionExercises/{id} {
+      allow read: if sameHousehold(resource.data);
+      allow create: if sameHousehold(request.resource.data);
+      allow update, delete: if sameHousehold(resource.data) && sameHousehold(request.resource.data);
+    }
+
+    match /exerciseSets/{id} {
+      allow read: if sameHousehold(resource.data);
+      allow create: if sameHousehold(request.resource.data);
+      allow update, delete: if sameHousehold(resource.data) && sameHousehold(request.resource.data);
+    }
+
+    match /personalRecords/{id} {
+      allow read: if sameHousehold(resource.data);
+      allow create: if sameHousehold(request.resource.data);
+      allow update, delete: if sameHousehold(resource.data) && sameHousehold(request.resource.data);
+    }
+
+    match /dietPlans/{id} {
+      allow read: if sameHousehold(resource.data);
+      allow create: if sameHousehold(request.resource.data);
+      allow update, delete: if sameHousehold(resource.data) && sameHousehold(request.resource.data);
+    }
+
+    match /dietMeals/{id} {
+      allow read: if sameHousehold(resource.data);
+      allow create: if sameHousehold(request.resource.data);
+      allow update, delete: if sameHousehold(resource.data) && sameHousehold(request.resource.data);
+    }
+
+    match /dietMealItems/{id} {
+      allow read: if sameHousehold(resource.data);
+      allow create: if sameHousehold(request.resource.data);
+      allow update, delete: if sameHousehold(resource.data) && sameHousehold(request.resource.data);
+    }
+
+    match /foods/{id} {
+      allow read: if sameHousehold(resource.data);
+      allow create: if sameHousehold(request.resource.data);
+      allow update, delete: if sameHousehold(resource.data) && sameHousehold(request.resource.data);
+    }
+
+    match /foodLogs/{id} {
+      allow read: if sameHousehold(resource.data);
+      allow create: if sameHousehold(request.resource.data);
+      allow update, delete: if sameHousehold(resource.data) && sameHousehold(request.resource.data);
+    }
+
+    match /dailyNutritionLogs/{id} {
+      allow read: if sameHousehold(resource.data);
+      allow create: if sameHousehold(request.resource.data);
+      allow update, delete: if sameHousehold(resource.data) && sameHousehold(request.resource.data);
+    }
+
+    match /weightEntries/{id} {
+      allow read: if sameHousehold(resource.data);
+      allow create: if sameHousehold(request.resource.data);
+      allow update, delete: if sameHousehold(resource.data) && sameHousehold(request.resource.data);
+    }
+
+    match /bodyMeasurements/{id} {
+      allow read: if sameHousehold(resource.data);
+      allow create: if sameHousehold(request.resource.data);
+      allow update, delete: if sameHousehold(resource.data) && sameHousehold(request.resource.data);
+    }
+  }
+}
