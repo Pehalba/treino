@@ -31,6 +31,9 @@ export function SettingsPage() {
   const [carbGoal, setCarbGoal] = useState(activeProfile?.carbGoal ?? 400)
   const [fatGoal, setFatGoal] = useState(activeProfile?.fatGoal ?? 90)
   const [weekly, setWeekly] = useState(activeProfile?.weeklyWorkoutGoal ?? 4)
+  const [timerMinutes, setTimerMinutes] = useState(
+    activeProfile?.timerSeconds ? String(Math.round((activeProfile.timerSeconds / 60) * 2) / 2) : '2',
+  )
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
 
@@ -52,6 +55,7 @@ export function SettingsPage() {
     setCarbGoal(activeProfile.carbGoal)
     setFatGoal(activeProfile.fatGoal)
     setWeekly(activeProfile.weeklyWorkoutGoal)
+    setTimerMinutes(activeProfile.timerSeconds ? String(Math.round((activeProfile.timerSeconds / 60) * 2) / 2) : '2')
     weightService.list(activeProfile.id).then((items) => {
       if (items[0]) setWeight(String(items[0].weight))
     })
@@ -62,6 +66,7 @@ export function SettingsPage() {
     try {
       const parsedWeight = parseLocaleNumber(weight)
       const parsedGoal = parseLocaleNumber(weightGoal)
+      const parsedTimer = parseLocaleNumber(timerMinutes)
       const patch = {
         name: name.trim(),
         heightCm: height ? Number(height) : null,
@@ -72,6 +77,7 @@ export function SettingsPage() {
         carbGoal,
         fatGoal,
         weeklyWorkoutGoal: weekly,
+        timerSeconds: parsedTimer != null && parsedTimer > 0 ? Math.round(parsedTimer * 60) : 120,
       }
       await profileService.updateProfile(activeProfile.id, patch, user.id)
       if (parsedWeight != null && parsedWeight > 0) {
@@ -167,6 +173,10 @@ export function SettingsPage() {
           <label className="text-sm text-muted">
             Treinos/semana
             <Input type="number" className="mt-1" value={weekly} onChange={(e) => setWeekly(Number(e.target.value))} />
+          </label>
+          <label className="text-sm text-muted">
+            Timer (minutos)
+            <Input className="mt-1" inputMode="decimal" value={timerMinutes} onChange={(e) => setTimerMinutes(e.target.value)} />
           </label>
           <label className="text-sm text-muted">
             Calorias

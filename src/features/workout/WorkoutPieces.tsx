@@ -2,6 +2,7 @@ import { Button } from '@/components/ui/Button'
 import { Modal } from '@/components/ui/Modal'
 import { NumberStepper } from '@/components/ui/NumberStepper'
 import { EQUIPMENT_LABELS, MUSCLE_LABELS, type Exercise, type ExerciseSet, type SkipReason } from '@/types'
+import { formatTimer } from '@/utils/dates'
 import { formatKg, formatNumber } from '@/utils/format'
 import { youtubeEmbedUrl, youtubeWatchUrl } from '@/utils/ids'
 import { repsPattern, workingWeight } from '@/utils/volume'
@@ -127,6 +128,93 @@ export function RestOverlay({
         </div>
       </div>
     </div>
+  )
+}
+
+export function ExerciseTimer({
+  durationSeconds,
+  remaining,
+  running,
+  onStart,
+  onStop,
+  onAdd,
+  onEdit,
+}: {
+  durationSeconds: number
+  remaining: number
+  running: boolean
+  onStart: () => void
+  onStop: () => void
+  onAdd: () => void
+  onEdit: () => void
+}) {
+  const shown = running ? remaining : durationSeconds
+  return (
+    <section className="mt-5 rounded-3xl bg-card p-4">
+      <p className="text-xs font-semibold tracking-widest text-muted uppercase">Timer</p>
+      <p className={`mt-2 font-display text-5xl font-semibold ${running ? 'text-accent' : 'text-ink'}`}>
+        {formatTimer(shown)}
+      </p>
+      <p className="mt-1 text-sm text-muted">
+        {running ? 'Em andamento' : 'Opcional. Toque em iniciar quando quiser.'}
+      </p>
+      {running ? (
+        <div className="mt-4 grid grid-cols-2 gap-2">
+          <Button variant="secondary" onClick={onAdd}>
+            +30s
+          </Button>
+          <Button variant="secondary" onClick={onStop}>
+            Parar
+          </Button>
+        </div>
+      ) : (
+        <div className="mt-4 grid grid-cols-2 gap-2">
+          <Button onClick={onStart}>Iniciar</Button>
+          <Button variant="secondary" onClick={onEdit}>
+            Alterar timer
+          </Button>
+        </div>
+      )}
+    </section>
+  )
+}
+
+export function TimerEditModal({
+  open,
+  minutes,
+  onMinutes,
+  onClose,
+  onSave,
+}: {
+  open: boolean
+  minutes: number
+  onMinutes: (value: number) => void
+  onClose: () => void
+  onSave: () => void
+}) {
+  return (
+    <Modal open={open} onClose={onClose} title="Alterar timer">
+      <p className="text-sm text-muted">Esse valor fica salvo no seu perfil e vale para os próximos treinos.</p>
+      <p className="mt-4 text-sm text-muted">Minutos</p>
+      <NumberStepper value={minutes} onChange={onMinutes} step={0.5} min={0.25} suffix="min" />
+      <div className="mt-3 grid grid-cols-4 gap-2">
+        {[1, 1.5, 2, 3].map((value) => (
+          <button
+            key={value}
+            type="button"
+            onClick={() => onMinutes(value)}
+            className={`min-h-11 rounded-2xl text-sm font-semibold ${
+              minutes === value ? 'bg-accent text-[#08090B]' : 'bg-card2'
+            }`}
+          >
+            {String(value).replace('.', ',')}
+          </button>
+        ))}
+      </div>
+      <Button className="mt-5 w-full" size="xl" onClick={onSave}>
+        Salvar no perfil
+      </Button>
+    </Modal>
   )
 }
 

@@ -108,6 +108,7 @@ export const profileService = {
       fatGoal: 90,
       heightCm: null,
       weightGoalKg: null,
+      timerSeconds: 120,
       goal: 'bulking',
     })
     await profileRepository.saveProfile(profile)
@@ -153,6 +154,7 @@ export const profileService = {
         | 'proteinGoal'
         | 'carbGoal'
         | 'fatGoal'
+        | 'timerSeconds'
       >
     >,
     userId: string,
@@ -160,6 +162,9 @@ export const profileService = {
     if (data.name != null && !data.name.trim()) throw new Error('Nome não pode ficar vazio.')
     if (data.heightCm != null && data.heightCm < 0) throw new Error('Altura inválida.')
     if (data.weightGoalKg != null && data.weightGoalKg < 0) throw new Error('Meta de peso inválida.')
+    if (data.timerSeconds != null && (data.timerSeconds < 15 || data.timerSeconds > 1800)) {
+      throw new Error('Timer inválido. Use entre 15 segundos e 30 minutos.')
+    }
     if (data.weeklyWorkoutGoal != null && data.weeklyWorkoutGoal < 0) throw new Error('Meta de treinos inválida.')
     if (data.calorieGoal != null && data.calorieGoal < 0) throw new Error('Meta de calorias inválida.')
     await profileRepository.updateProfile(profileId, { ...data, ...auditFields(userId) })

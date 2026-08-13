@@ -4,18 +4,20 @@ import { ErrorState } from '@/components/ui/ErrorState'
 import { Skeleton } from '@/components/ui/Skeleton'
 import {
   ExerciseDone,
+  ExerciseTimer,
   LastTime,
   OccupiedModal,
   ReplaceModal,
-  RestOverlay,
   SetForm,
   SkipModal,
+  TimerEditModal,
   VideoModal,
   WorkoutSummary,
 } from '@/features/workout/WorkoutPieces'
 import { useRestTimer } from '@/hooks/useRestTimer'
 import { useSession } from '@/hooks/useSession'
 import { exerciseService } from '@/services/exerciseService'
+import { profileService } from '@/services/profileService'
 import { workoutService } from '@/services/workoutService'
 import type {
   Exercise,
@@ -41,7 +43,7 @@ import { useNavigate, useParams } from 'react-router-dom'
 export function WorkoutModePage() {
   const { sessionId } = useParams()
   const navigate = useNavigate()
-  const { user, activeProfile } = useSession()
+  const { user, activeProfile, patchActiveProfile } = useSession()
   const rest = useRestTimer()
 
   const [session, setSession] = useState<WorkoutSession | null>(null)
@@ -63,6 +65,8 @@ export function WorkoutModePage() {
   const [replaceOpen, setReplaceOpen] = useState(false)
   const [cancelOpen, setCancelOpen] = useState(false)
   const [cancelling, setCancelling] = useState(false)
+  const [timerOpen, setTimerOpen] = useState(false)
+  const [timerMinutes, setTimerMinutes] = useState(2)
   const setMinimizedWorkout = useAppStore((s) => s.setMinimizedWorkout)
   const [progressions, setProgressions] = useState(0)
   const [records, setRecords] = useState(0)
@@ -72,6 +76,19 @@ export function WorkoutModePage() {
   const currentSets = sets.filter((s) => s.sessionExerciseId === current?.id && s.completed).sort((a, b) => a.setNumber - b.setNumber)
   const nextSetNumber = (currentSets[currentSets.length - 1]?.setNumber ?? 0) + 1
   const allDone = exercises.length > 0 && exercises.every((e) => e.status === 'completed' || e.status === 'skipped')
+  const timerSeconds = activeProfile?.timerSeconds && activeProfile.timerSeconds > 0 ? activeProfile.timerSeconds : 120
+
+  useEffect(() => {
+    setTimerMinutes(Math.round((timerSeconds / 60) * 2) / 2)
+  }, [timerSeconds])
+
+  async function saveTimer() {
+    if (!user || !activeProfile) return
+    const seconds = Math.round(Math.max(0.5, timerMinutes) * 60)
+    await profileService.updateProfile(activeProfile.id, { timerSeconds: seconds }, user.id)
+    patchActiveProfile({ timerSeconds: seconds })
+    setTimerOpen(false)
+  }
 
   useEffect(() => {
     if (!session) return
@@ -251,8 +268,6 @@ export function WorkoutModePage() {
         hapticRecord()
       }
       setExercises((items) => items.map((e) => (e.id === current.id ? { ...e, status: 'completed' } : e)))
-    } else {
-      rest.start(current.restSeconds)
     }
   }
 
@@ -515,9 +530,6 @@ export function WorkoutModePage() {
           <p className="mt-4 text-sm">
             Meta: <strong>{current.sets} séries</strong> · <strong>{current.repMin}–{current.repMax} repetições</strong>
           </p>
-          <p className="text-sm text-muted">
-            Descanso: {Math.floor(current.restSeconds / 60)}:{String(current.restSeconds % 60).padStart(2, '0')}
-          </p>
 
           <Button className="mt-4" variant="secondary" onClick={() => setVideoOpen(true)}>
             ▶ Ver execução
@@ -528,6 +540,15 @@ export function WorkoutModePage() {
               <div className="mt-6">
                 <LastTime sets={lastSets} />
               </div>
+              <ExerciseTimer
+                durationSeconds={timerSeconds}
+                remaining={rest.remaining}
+                running={rest.running}
+                onStart={() => rest.start(timerSeconds)}
+                onStop={rest.skip}
+                onAdd={() => rest.add(30)}
+                onEdit={() => setTimerOpen(true)}
+              />
               <div className="mt-4 space-y-2">
                 {currentSets.map((s) => (
                   <p key={s.id} className="rounded-2xl bg-card2 px-4 py-3 text-sm">
@@ -563,11 +584,14 @@ export function WorkoutModePage() {
         </motion.div>
       </AnimatePresence>
 
-      {rest.running ? (
-        <RestOverlay remaining={rest.remaining} onAdd={() => rest.add(30)} onSkip={rest.skip} />
-      ) : null}
-
       <VideoModal url={youtubeUrl} open={videoOpen} onClose={() => setVideoOpen(false)} />
+      <TimerEditModal
+        open={timerOpen}
+        minutes={timerMinutes}
+        onMinutes={setTimerMinutes}
+        onClose={() => setTimerOpen(false)}
+        onSave={() => void saveTimer()}
+      />
       <SkipModal open={skipOpen} onClose={() => setSkipOpen(false)} onReason={(r) => void applySkip(r)} />
       <OccupiedModal
         open={occupiedOpen}

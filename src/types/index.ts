@@ -137,6 +137,7 @@ export type Profile = {
   proteinGoal: number
   carbGoal: number
   fatGoal: number
+  timerSeconds?: number
   createdAt: number
   updatedAt?: number
   updatedBy?: string
