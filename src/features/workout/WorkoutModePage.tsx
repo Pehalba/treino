@@ -475,7 +475,7 @@ export function WorkoutModePage() {
   const index = exercises.findIndex((e) => e.id === current.id)
 
   return (
-    <div className="min-h-svh bg-bg px-4 pb-8 pt-4">
+    <div className="min-h-svh bg-bg px-4 pb-8 pt-[max(1.5rem,env(safe-area-inset-top))] sm:pt-8">
       <header className="flex items-start justify-between gap-3">
         <div>
           <p className="font-display text-lg">

@@ -3,7 +3,7 @@ import type { ButtonHTMLAttributes } from 'react'
 
 type Props = ButtonHTMLAttributes<HTMLButtonElement> & {
   variant?: 'primary' | 'secondary' | 'ghost' | 'danger'
-  size?: 'md' | 'lg' | 'xl'
+  size?: 'sm' | 'md' | 'lg' | 'xl'
 }
 
 export function Button({ className, variant = 'primary', size = 'lg', type = 'button', ...props }: Props) {
@@ -12,6 +12,7 @@ export function Button({ className, variant = 'primary', size = 'lg', type = 'bu
       type={type}
       className={cn(
         'inline-flex items-center justify-center gap-2 rounded-2xl font-semibold tracking-wide transition active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-40',
+        size === 'sm' && 'min-h-9 rounded-xl px-3 text-xs',
         size === 'md' && 'min-h-11 px-4 text-sm',
         size === 'lg' && 'min-h-12 px-5 text-base',
         size === 'xl' && 'min-h-14 px-6 text-base',

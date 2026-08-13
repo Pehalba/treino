@@ -192,28 +192,30 @@ export function ExerciseTimer({
 }) {
   const shown = running ? remaining : durationSeconds
   return (
-    <section className="mt-5 rounded-3xl bg-card p-4">
-      <p className="text-xs font-semibold tracking-widest text-muted uppercase">Timer</p>
-      <p className={`mt-2 font-display text-5xl font-semibold ${running ? 'text-accent' : 'text-ink'}`}>
+    <section className="mt-4 rounded-2xl bg-card px-3 py-3">
+      <p className="text-[10px] font-semibold tracking-widest text-muted uppercase">Timer</p>
+      <p className={`mt-1 font-display text-3xl font-semibold leading-none ${running ? 'text-accent' : 'text-ink'}`}>
         {formatTimer(shown)}
       </p>
-      <p className="mt-1 text-sm text-muted">
+      <p className="mt-1 text-xs text-muted">
         {running ? 'Em andamento' : 'Opcional. Toque em iniciar quando quiser.'}
       </p>
       {running ? (
-        <div className="mt-4 grid grid-cols-2 gap-2">
-          <Button variant="secondary" onClick={onAdd}>
+        <div className="mt-3 grid grid-cols-2 gap-1.5">
+          <Button size="sm" variant="secondary" onClick={onAdd}>
             +30s
           </Button>
-          <Button variant="secondary" onClick={onStop}>
+          <Button size="sm" variant="secondary" onClick={onStop}>
             Parar
           </Button>
         </div>
       ) : (
-        <div className="mt-4 grid grid-cols-2 gap-2">
-          <Button onClick={onStart}>Iniciar</Button>
-          <Button variant="secondary" onClick={onEdit}>
-            Alterar timer
+        <div className="mt-3 grid grid-cols-2 gap-1.5">
+          <Button size="sm" onClick={onStart}>
+            Iniciar
+          </Button>
+          <Button size="sm" variant="secondary" onClick={onEdit}>
+            Alterar
           </Button>
         </div>
       )}

@@ -65,11 +65,11 @@ const WIDGET_ICONS: Record<DashboardWidgetId, LucideIcon> = {
 function WidgetHeader({ id, label }: { id: DashboardWidgetId; label: string }) {
   const Icon = WIDGET_ICONS[id]
   return (
-    <div className="flex items-start justify-between gap-3">
-      <p className="text-xs font-semibold tracking-widest text-muted uppercase">{label}</p>
-      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl bg-accent/15 text-accent">
-        <Icon size={18} strokeWidth={2.2} aria-hidden />
+    <div className="flex items-center gap-2.5">
+      <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-accent/15 text-accent">
+        <Icon size={16} strokeWidth={2.2} aria-hidden />
       </span>
+      <p className="text-xs font-semibold tracking-widest text-muted uppercase">{label}</p>
     </div>
   )
 }
@@ -276,11 +276,11 @@ export function HomePage() {
       case 'workout_list':
         return (
           <section>
-            <div className="mb-3 flex items-center justify-between gap-3">
-              <h2 className="font-display text-lg tracking-wide uppercase">Seus treinos</h2>
-              <span className="flex h-9 w-9 items-center justify-center rounded-2xl bg-accent/15 text-accent">
-                <Dumbbell size={18} strokeWidth={2.2} aria-hidden />
+            <div className="mb-3 flex items-center gap-2.5">
+              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-accent/15 text-accent">
+                <Dumbbell size={16} strokeWidth={2.2} aria-hidden />
               </span>
+              <h2 className="font-display text-lg tracking-wide uppercase">Seus treinos</h2>
             </div>
             {templates.length === 0 ? (
               <EmptyState title="Nenhum treino ainda" description="Cadastre ou importe treinos no perfil." />
