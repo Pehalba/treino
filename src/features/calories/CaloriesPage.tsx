@@ -12,7 +12,8 @@ import { useFeedback } from '@/hooks/useFeedback'
 import { useSession } from '@/hooks/useSession'
 import { dietService, nutritionService } from '@/services/nutritionService'
 import { MEAL_CATEGORIES, MEAL_LABELS, type DietMeal, type DietMealItem, type FoodLog, type MealCategory } from '@/types'
-import { groupMealsByMenuCategory, mealMacroTotals } from '@/utils/dietMeals'
+import { loadDietCache } from '@/utils/dietCache'
+import { groupMealsByMenuCategory, mealMacroTotals, type DietMenuCategory } from '@/utils/dietMeals'
 import { formatGrams, formatKcal, parseLocaleNumber } from '@/utils/format'
 import { todayKey } from '@/utils/dates'
 import { useEffect, useMemo, useState } from 'react'
@@ -28,6 +29,8 @@ export function CaloriesPage() {
   const [meals, setMeals] = useState<MealWithItems[]>([])
   const [loading, setLoading] = useState(true)
   const [open, setOpen] = useState(false)
+  const [pickerOpen, setPickerOpen] = useState(false)
+  const [pickerCategory, setPickerCategory] = useState<DietMenuCategory | null>(null)
   const [category, setCategory] = useState<MealCategory>('lunch')
   const [name, setName] = useState('')
   const [calories, setCalories] = useState('')
@@ -35,43 +38,33 @@ export function CaloriesPage() {
   const [carbs, setCarbs] = useState('')
   const [fat, setFat] = useState('')
   const [saving, setSaving] = useState<string | null>(null)
+  const [planGoal, setPlanGoal] = useState<number | null>(null)
   const [videoMeal, setVideoMeal] = useState<MealWithItems | null>(null)
 
   useEffect(() => {
     if (!activeProfile) return
     let alive = true
-    let logsReady = false
-    let mealsReady = false
+    const cached = loadDietCache(activeProfile.id)
+    setLogs([])
+    setMeals(cached?.meals ?? [])
+    setPlanGoal(cached?.plan?.calorieGoal ?? null)
     setLoading(true)
 
-    function maybeDone() {
-      if (alive && logsReady && mealsReady) setLoading(false)
-    }
-
-    void dietService
-      .getActivePlan(activeProfile)
-      .then((data) => {
-        if (!alive) return
-        setMeals(data.meals)
-        mealsReady = true
-        maybeDone()
-      })
-      .catch(() => {
-        mealsReady = true
-        maybeDone()
-      })
+    void dietService.getActivePlan(activeProfile).then((data) => {
+      if (!alive) return
+      setMeals(data.meals)
+      setPlanGoal(data.plan?.calorieGoal ?? null)
+    })
     const unsub = nutritionService.subscribeLogsByDate(
       activeProfile.id,
       todayKey(),
       (items) => {
         if (!alive) return
         setLogs(items)
-        logsReady = true
-        maybeDone()
+        setLoading(false)
       },
       () => {
-        logsReady = true
-        maybeDone()
+        if (alive) setLoading(false)
       },
     )
     return () => {
@@ -87,7 +80,7 @@ export function CaloriesPage() {
     () => new Set(logs.map((log) => log.fromDietMealId).filter((id): id is string => Boolean(id))),
     [logs],
   )
-  const goal = activeProfile?.calorieGoal ?? 0
+  const goal = planGoal || activeProfile?.calorieGoal || 0
   const remaining = Math.max(0, goal - totals.calories)
 
   async function registerMeal(meal: MealWithItems) {
@@ -95,6 +88,8 @@ export function CaloriesPage() {
     setSaving(meal.id)
     await nutritionService.logPlannedMeal({ user, profile: activeProfile, meal })
     setSaving(null)
+    setPickerOpen(false)
+    setPickerCategory(null)
     show('Refeição registrada ✓')
   }
 
@@ -127,7 +122,7 @@ export function CaloriesPage() {
     <AppShell title="Calorias">
       <Toast message={message} />
       <p className="mb-4 text-sm text-muted">
-        Toque no prato que você comeu. As calorias já vêm da dieta — sem anotar uma a uma.
+        Toque em Registrar, escolha a refeição e depois o prato. As calorias já vêm da dieta.
       </p>
       {loading ? (
         <Skeleton className="h-48" />
@@ -150,63 +145,27 @@ export function CaloriesPage() {
         </Card>
       )}
 
-      <h2 className="mt-8 mb-3 font-display text-lg">Registrar refeição</h2>
-      {readyMeals.length === 0 ? (
+      <Button
+        className="mt-6 w-full"
+        size="xl"
+        onClick={() => {
+          setPickerCategory(null)
+          setPickerOpen(true)
+        }}
+        disabled={readyMeals.length === 0}
+      >
+        Registrar refeição
+      </Button>
+      {readyMeals.length === 0 && !loading ? (
         <EmptyState
           title="Nenhum prato pronto ainda"
-          description="Monte os alimentos em Dietas. Depois eles aparecem aqui com as calorias certas."
+          description="Monte as opções em Dietas. Depois você escolhe a refeição e o prato daqui."
           actionLabel="Abrir dietas"
           onAction={() => navigate('/dietas')}
         />
-      ) : (
-        <div className="space-y-6">
-          {sections.map((section) => {
-            const dishes = section.meals.filter((meal) => meal.items.length > 0)
-            if (dishes.length === 0) return null
-            return (
-              <section key={section.category}>
-                <h3 className="mb-2 text-xs font-semibold tracking-widest text-muted uppercase">{section.label}</h3>
-                <div className="space-y-3">
-                  {dishes.map((meal) => {
-                    const macros = mealMacroTotals(meal.items)
-                    const already = loggedMealIds.has(meal.id)
-                    return (
-                      <Card key={meal.id}>
-                        <div className="flex items-start justify-between gap-3">
-                          <div>
-                            <h4 className="font-display text-lg">{meal.name || section.label}</h4>
-                            <p className="mt-1 text-sm text-muted">
-                              {meal.items.map((item) => item.foodName).join(' · ')}
-                            </p>
-                            <p className="mt-1 text-sm font-semibold">{formatKcal(macros.calories)}</p>
-                            {already ? <p className="mt-1 text-xs text-accent">Já registrado hoje</p> : null}
-                          </div>
-                        </div>
-                        <div className="mt-4 grid grid-cols-1 gap-2">
-                          {meal.youtubeUrl ? (
-                            <Button variant="secondary" onClick={() => setVideoMeal(meal)}>
-                              Como preparar
-                            </Button>
-                          ) : null}
-                          <Button
-                            size="xl"
-                            disabled={Boolean(saving)}
-                            onClick={() => void registerMeal(meal)}
-                          >
-                            {saving === meal.id ? 'Registrando…' : already ? 'Registrar de novo' : 'Registrar'}
-                          </Button>
-                        </div>
-                      </Card>
-                    )
-                  })}
-                </div>
-              </section>
-            )
-          })}
-        </div>
-      )}
+      ) : null}
 
-      <Button className="mt-5 w-full" size="lg" variant="secondary" onClick={() => setOpen(true)}>
+      <Button className="mt-3 w-full" size="lg" variant="secondary" onClick={() => setOpen(true)}>
         Outra refeição (fora da dieta)
       </Button>
 
@@ -226,6 +185,71 @@ export function CaloriesPage() {
           ))
         )}
       </div>
+
+      <Modal
+        open={pickerOpen}
+        onClose={() => {
+          setPickerOpen(false)
+          setPickerCategory(null)
+        }}
+        title={pickerCategory ? MEAL_LABELS[pickerCategory] : 'Qual refeição?'}
+      >
+        {pickerCategory ? (
+          <>
+            <Button className="mb-3 px-0" variant="ghost" onClick={() => setPickerCategory(null)}>
+              ← Trocar refeição
+            </Button>
+            <div className="space-y-2">
+              {(sections.find((section) => section.category === pickerCategory)?.meals ?? [])
+                .filter((meal) => meal.items.length > 0)
+                .map((meal) => {
+                  const macros = mealMacroTotals(meal.items)
+                  const already = loggedMealIds.has(meal.id)
+                  return (
+                    <div key={meal.id} className="rounded-2xl bg-card2 p-3">
+                      <p className="font-display text-lg">{meal.name || MEAL_LABELS[pickerCategory]}</p>
+                      <p className="mt-1 text-sm text-muted">{meal.items.map((item) => item.foodName).join(' · ')}</p>
+                      <p className="mt-1 text-sm font-semibold">{formatKcal(macros.calories)}</p>
+                      {already ? <p className="mt-1 text-xs text-accent">Já registrado hoje</p> : null}
+                      <div className="mt-3 grid grid-cols-1 gap-2">
+                        {meal.youtubeUrl ? (
+                          <Button variant="secondary" onClick={() => setVideoMeal(meal)}>
+                            Como preparar
+                          </Button>
+                        ) : null}
+                        <Button size="xl" disabled={Boolean(saving)} onClick={() => void registerMeal(meal)}>
+                          {saving === meal.id ? 'Registrando…' : 'Registrar este prato'}
+                        </Button>
+                      </div>
+                    </div>
+                  )
+                })}
+              {(sections.find((section) => section.category === pickerCategory)?.meals ?? []).filter((meal) => meal.items.length > 0)
+                .length === 0 ? (
+                <p className="text-sm text-muted">Ainda não há pratos nesta refeição. Eles entram em Dietas.</p>
+              ) : null}
+            </div>
+          </>
+        ) : (
+          <div className="grid grid-cols-1 gap-2">
+            {sections.map((section) => {
+              const count = section.meals.filter((meal) => meal.items.length > 0).length
+              return (
+                <button
+                  key={section.category}
+                  type="button"
+                  disabled={count === 0}
+                  onClick={() => setPickerCategory(section.category)}
+                  className="flex min-h-14 items-center justify-between rounded-2xl bg-card2 px-4 text-left disabled:opacity-40"
+                >
+                  <span className="font-semibold">{section.label}</span>
+                  <span className="text-sm text-muted">{count === 0 ? 'Vazio' : `${count} ${count === 1 ? 'prato' : 'pratos'}`}</span>
+                </button>
+              )
+            })}
+          </div>
+        )}
+      </Modal>
 
       <Modal open={open} onClose={() => setOpen(false)} title="Fora da dieta">
         <p className="mb-3 text-sm text-muted">Use só se o que você comeu não está nos pratos da dieta.</p>

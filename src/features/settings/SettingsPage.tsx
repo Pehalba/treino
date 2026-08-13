@@ -11,7 +11,8 @@ import { profileService } from '@/services/profileService'
 import { seedService } from '@/services/seedService'
 import { weightService } from '@/services/weightService'
 import { PROFILE_GOALS, PROFILE_GOAL_LABELS, type ImportPayload, type ProfileGoal } from '@/types'
-import { parseLocaleNumber } from '@/utils/format'
+import { parseHeightCm, parseLocaleNumber } from '@/utils/format'
+import { clearBootCache } from '@/utils/localSession'
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 
@@ -48,6 +49,7 @@ export function SettingsPage() {
 
   useEffect(() => {
     if (!activeProfile) return
+    let alive = true
     setName(activeProfile.name)
     setHeight(activeProfile.heightCm ? String(activeProfile.heightCm) : '')
     setWeightGoal(activeProfile.weightGoalKg ? String(activeProfile.weightGoalKg) : '')
@@ -60,14 +62,27 @@ export function SettingsPage() {
     setTimerMinutes(activeProfile.timerSeconds ? String(Math.round((activeProfile.timerSeconds / 60) * 2) / 2) : '2')
     setAgeYears(activeProfile.ageYears ? String(activeProfile.ageYears) : '25')
     setActivity(activeProfile.activityMultiplier ? String(activeProfile.activityMultiplier).replace('.', ',') : '1,5')
+    setWeight('')
     weightService.list(activeProfile.id).then((items) => {
-      if (items[0]) setWeight(String(items[0].weight))
+      if (!alive) return
+      setWeight(items[0] ? String(items[0].weight) : '')
     })
-  }, [activeProfile?.id])
+    return () => {
+      alive = false
+    }
+  }, [
+    activeProfile?.id,
+    activeProfile?.calorieGoal,
+    activeProfile?.proteinGoal,
+    activeProfile?.carbGoal,
+    activeProfile?.fatGoal,
+  ])
 
   async function saveGoals() {
     if (!activeProfile || !user) return
     try {
+      const parsedHeight = parseHeightCm(height)
+      if (height.trim() && parsedHeight == null) throw new Error('Altura inválida. Use cm (ex.: 186) ou metros (ex.: 1,86).')
       const parsedWeight = parseLocaleNumber(weight)
       const parsedGoal = parseLocaleNumber(weightGoal)
       const parsedTimer = parseLocaleNumber(timerMinutes)
@@ -75,7 +90,7 @@ export function SettingsPage() {
       const parsedActivity = parseLocaleNumber(activity)
       const patch = {
         name: name.trim(),
-        heightCm: height ? Number(height) : null,
+        heightCm: parsedHeight,
         weightGoalKg: parsedGoal != null && parsedGoal > 0 ? parsedGoal : null,
         goal,
         calorieGoal,
@@ -106,12 +121,23 @@ export function SettingsPage() {
     setMessage('Perfil criado. Troque em Quem vai treinar.')
   }
 
+  async function copyInvite() {
+    if (!invite) return
+    try {
+      await navigator.clipboard.writeText(invite)
+      show('Código copiado')
+    } catch {
+      setMessage(`Código: ${invite}`)
+    }
+  }
+
   async function join() {
     if (!user) return
     setError('')
     try {
       await profileService.joinHousehold(user.id, joinCode)
-      setMessage('Você entrou no grupo. Recarregue se os perfis não aparecerem.')
+      clearBootCache()
+      window.location.reload()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Código inválido.')
     }
@@ -150,6 +176,22 @@ export function SettingsPage() {
       </Card>
 
       <Card className="mt-4">
+        <h2 className="font-display text-lg">Mesmos dados no PC e no celular</h2>
+        <p className="mt-2 text-sm text-muted">
+          Cada aparelho começa sozinho. Para o PC ver altura, peso e metas que você salvou no celular, copie o código
+          abaixo e cole em Quem vai treinar no outro aparelho.
+        </p>
+        <p className="mt-3 font-display text-2xl tracking-[0.2em]">{invite || '…'}</p>
+        <Button className="mt-3 w-full" variant="secondary" disabled={!invite} onClick={() => void copyInvite()}>
+          Copiar código
+        </Button>
+        <Input className="mt-4" placeholder="Código de outro aparelho" value={joinCode} onChange={(e) => setJoinCode(e.target.value.toUpperCase())} />
+        <Button className="mt-3 w-full" variant="secondary" onClick={() => void join()}>
+          Entrar no grupo
+        </Button>
+      </Card>
+
+      <Card className="mt-4">
         <h2 className="font-display text-lg">Dados e metas</h2>
         <div className="mt-3 grid gap-3 sm:grid-cols-2">
           <label className="text-sm text-muted">
@@ -172,7 +214,7 @@ export function SettingsPage() {
           </label>
           <label className="text-sm text-muted">
             Altura (cm)
-            <Input className="mt-1" type="number" value={height} onChange={(e) => setHeight(e.target.value)} />
+            <Input className="mt-1" inputMode="decimal" value={height} onChange={(e) => setHeight(e.target.value)} />
           </label>
           <label className="text-sm text-muted">
             Peso atual (kg)
@@ -227,11 +269,6 @@ export function SettingsPage() {
         <Input className="mt-3" placeholder="Outro nome de perfil" value={newName} onChange={(e) => setNewName(e.target.value)} />
         <Button className="mt-3 w-full" variant="secondary" onClick={() => void createProfile()}>
           Adicionar perfil
-        </Button>
-        <p className="mt-4 text-sm text-muted">Código do grupo (outro aparelho): {invite || '…'}</p>
-        <Input className="mt-2" placeholder="Entrar com código" value={joinCode} onChange={(e) => setJoinCode(e.target.value.toUpperCase())} />
-        <Button className="mt-3 w-full" variant="secondary" onClick={() => void join()}>
-          Entrar no grupo
         </Button>
       </Card>
 

@@ -14,6 +14,7 @@ import { DietScalePanel } from '@/features/diet/DietScalePanel'
 import { dietEditorService } from '@/services/dietEditorService'
 import { dietService } from '@/services/nutritionService'
 import { weightService } from '@/services/weightService'
+import { useAppStore } from '@/store/appStore'
 import {
   MEAL_CATEGORIES,
   MEAL_LABELS,
@@ -23,6 +24,7 @@ import {
   type MealCategory,
 } from '@/types'
 import { groupMealsByMenuCategory, nextDishName, normalizeMealCategory } from '@/utils/dietMeals'
+import { loadDietCache } from '@/utils/dietCache'
 import { ArrowDown, ArrowUp, Plus } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
@@ -57,18 +59,34 @@ export function DietEditPage() {
 
   async function load() {
     if (!activeProfile || !user) return
-    setLoading(true)
+    const profileId = activeProfile.id
+    const cached = loadDietCache(profileId)
+    if (cached?.plan) {
+      setPlan(cached.plan)
+      setMeals(cached.meals)
+      setName(cached.plan.name)
+      setCalorieGoal(cached.plan.calorieGoal ? String(cached.plan.calorieGoal) : '')
+      setNotes(cached.plan.notes ?? '')
+      setLoading(false)
+    } else {
+      setPlan(null)
+      setMeals([])
+      setLoading(true)
+    }
     const data = await dietService.getActivePlan(activeProfile)
+    if (useAppStore.getState().activeProfile?.id !== profileId) return
     let current = data.plan
     if (!current) {
       current = await dietEditorService.createEmptyPlan({ profile: activeProfile, userId: user.id })
     }
+    if (useAppStore.getState().activeProfile?.id !== profileId) return
     setPlan(current)
     setMeals(data.meals)
     setName(current.name)
     setCalorieGoal(current.calorieGoal ? String(current.calorieGoal) : '')
     setNotes(current.notes ?? '')
-    const weights = await weightService.list(activeProfile.id)
+    const weights = await weightService.list(profileId)
+    if (useAppStore.getState().activeProfile?.id !== profileId) return
     setWeightKg(weights[0]?.weight ?? null)
     setLoading(false)
   }

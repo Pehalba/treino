@@ -7,6 +7,18 @@ export function normalizeMealCategory(category: MealCategory): DietMenuCategory 
   return category
 }
 
+export function firstMealPerCategory<T extends { category: MealCategory }>(meals: T[]): T[] {
+  const seen = new Set<string>()
+  const typical: T[] = []
+  for (const meal of meals) {
+    const category = normalizeMealCategory(meal.category)
+    if (seen.has(category)) continue
+    seen.add(category)
+    typical.push(meal)
+  }
+  return typical
+}
+
 export function groupMealsByMenuCategory<T extends { category: MealCategory }>(meals: T[]) {
   return MEAL_CATEGORIES.map((category) => ({
     category,

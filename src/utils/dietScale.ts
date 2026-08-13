@@ -1,6 +1,6 @@
 import { carbPriorityIndex, foodRole, isProtectedFood } from '@/data/foodRoles'
 import type { DietMeal, DietMealItem } from '@/types'
-import { mealMacroTotals, normalizeMealCategory } from '@/utils/dietMeals'
+import { mealMacroTotals, firstMealPerCategory, normalizeMealCategory } from '@/utils/dietMeals'
 
 export type MealWithItems = DietMeal & { items: DietMealItem[] }
 
@@ -159,9 +159,9 @@ export function scaleDiet(params: {
   targetProtein: number
 }): ScaleDietResult {
   const warnings: string[] = []
-  const before = mealMacroTotals(params.meals.flatMap((meal) => meal.items))
-  const delta = params.targetKcal - before.calories
-  const largeChange = before.calories > 0 && Math.abs(delta) / before.calories > 0.25
+  const typical = () => firstMealPerCategory(meals)
+  const before = mealMacroTotals(firstMealPerCategory(params.meals).flatMap((meal) => meal.items))
+  const largeChange = before.calories > 0 && Math.abs(params.targetKcal - before.calories) / before.calories > 0.25
   if (largeChange) {
     warnings.push(
       'A meta está distante demais da dieta-base para um ajuste automático confortável. Revise o plano se as porções ficarem estranhas.',
@@ -173,39 +173,39 @@ export function scaleDiet(params: {
     items: meal.items.map((item) => withBase(item)),
   }))
 
-  const remainingByMeal = new Map<string, number>()
-  for (const meal of meals) {
+  meals = meals.map((meal) => {
     const weight = MEAL_WEIGHT[normalizeMealCategory(meal.category)] ?? 0.1
-    remainingByMeal.set(meal.id, delta * weight)
-  }
+    const current = mealMacroTotals(meal.items).calories
+    const delta = params.targetKcal * weight - current
+    return {
+      ...meal,
+      items: applyDeltaToItems(meal.items, delta),
+    }
+  })
 
-  meals = meals.map((meal) => ({
-    ...meal,
-    items: applyDeltaToItems(meal.items, remainingByMeal.get(meal.id) ?? 0),
-  }))
-
-  let after = mealMacroTotals(meals.flatMap((meal) => meal.items))
+  let after = mealMacroTotals(typical().flatMap((meal) => meal.items))
   let leftover = params.targetKcal - after.calories
   if (Math.abs(leftover) >= 12) {
+    const count = Math.max(1, typical().length)
     meals = meals.map((meal) => ({
       ...meal,
-      items: applyDeltaToItems(meal.items, leftover / Math.max(1, meals.length)),
+      items: applyDeltaToItems(meal.items, leftover / count),
     }))
-    after = mealMacroTotals(meals.flatMap((meal) => meal.items))
+    after = mealMacroTotals(typical().flatMap((meal) => meal.items))
   }
 
   if (after.protein + 4 < params.targetProtein) {
-    const anchors = meals.flatMap((meal) =>
+    const anchors = typical().flatMap((meal) =>
       meal.items.filter((item) => foodRole(item.foodName) === 'protein_anchor' && !item.manualOverride),
     )
     if (anchors.length > 0) {
       const share = ((params.targetProtein - after.protein) * 4) / anchors.length
-      const ids = new Set(anchors.map((item) => item.id))
+      const names = new Set(anchors.map((item) => item.foodName))
       meals = meals.map((meal) => ({
         ...meal,
-        items: meal.items.map((item) => (ids.has(item.id) ? shiftItem(item, share).item : item)),
+        items: meal.items.map((item) => (names.has(item.foodName) ? shiftItem(item, share).item : item)),
       }))
-      after = mealMacroTotals(meals.flatMap((meal) => meal.items))
+      after = mealMacroTotals(typical().flatMap((meal) => meal.items))
     }
   }
 

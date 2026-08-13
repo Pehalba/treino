@@ -21,6 +21,8 @@ export function WeightPage({ embedded = false }: { embedded?: boolean }) {
 
   useEffect(() => {
     if (!activeProfile) return
+    setEntries([])
+    setLoading(true)
     const unsub = weightService.subscribe(
       activeProfile.id,
       (items) => {

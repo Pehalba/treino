@@ -7,6 +7,7 @@ import { VideoModal } from '@/features/workout/WorkoutPieces'
 import { useSession } from '@/hooks/useSession'
 import { dietService } from '@/services/nutritionService'
 import type { DietMeal, DietMealItem } from '@/types'
+import { loadDietCache } from '@/utils/dietCache'
 import { groupMealsByMenuCategory, mealMacroTotals } from '@/utils/dietMeals'
 import { formatKcal } from '@/utils/format'
 import { useEffect, useMemo, useState } from 'react'
@@ -24,7 +25,16 @@ export function DietPage() {
   useEffect(() => {
     if (!activeProfile) return
     let alive = true
-    setLoading(true)
+    const cached = loadDietCache(activeProfile.id)
+    if (cached?.plan) {
+      setPlanName(cached.plan.name)
+      setMeals(cached.meals)
+      setLoading(false)
+    } else {
+      setPlanName('Minha dieta')
+      setMeals([])
+      setLoading(true)
+    }
     dietService.getActivePlan(activeProfile).then((data) => {
       if (!alive) return
       setPlanName(data.plan?.name ?? 'Minha dieta')
@@ -41,7 +51,7 @@ export function DietPage() {
   return (
     <AppShell title="Dietas">
       <p className="mb-4 text-sm text-muted">
-        Aqui você vê o plano. Para registrar o que comeu, use Calorias. Para subir ou descer as kcal sem trocar os pratos, use Editar → Ajustar porções.
+        Aqui você vê as opções de cada refeição. Para registrar o que comeu, use Calorias: escolha a refeição e depois o prato.
       </p>
       {loading ? (
         <Skeleton className="h-64" />
@@ -54,7 +64,14 @@ export function DietPage() {
           <div className="space-y-6">
             {sections.map((section) => (
               <section key={section.category}>
-                <h3 className="mb-2 text-xs font-semibold tracking-widest text-muted uppercase">{section.label}</h3>
+                <div className="mb-2 flex items-baseline justify-between gap-3">
+                  <h3 className="text-xs font-semibold tracking-widest text-muted uppercase">{section.label}</h3>
+                  <p className="text-xs text-muted">
+                    {section.meals.length === 0
+                      ? 'Sem opções ainda'
+                      : `${section.meals.length} ${section.meals.length === 1 ? 'opção' : 'opções'}`}
+                  </p>
+                </div>
                 {section.meals.length === 0 ? (
                   <Card className="border border-dashed border-line bg-transparent">
                     <p className="text-sm text-muted">Nenhum prato ainda.</p>

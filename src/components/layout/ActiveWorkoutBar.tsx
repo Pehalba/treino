@@ -16,19 +16,24 @@ export function ActiveWorkoutBar() {
       setMinimizedWorkout(null)
       return
     }
+    setMinimizedWorkout(null)
     const local = loadLocalSession(activeProfile.id)
     if (local && !local.session.completed) {
       setMinimizedWorkout({ id: local.session.id, name: local.session.templateName })
+      return
     }
-    return workoutService.subscribeSessions(activeProfile.id, (sessions) => {
-      const open = sessions.find((item) => !item.completed)
+    let cancelled = false
+    void workoutService.findActiveSession(activeProfile.id).then((open) => {
+      if (cancelled) return
       if (open) {
         setMinimizedWorkout({ id: open.id, name: open.templateName })
         return
       }
-      const stillLocal = loadLocalSession(activeProfile.id)
-      if (!stillLocal || stillLocal.session.completed) setMinimizedWorkout(null)
+      setMinimizedWorkout(null)
     })
+    return () => {
+      cancelled = true
+    }
   }, [activeProfile?.id, setMinimizedWorkout])
 
   if (!workout) return null

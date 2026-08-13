@@ -305,6 +305,7 @@ export type DietPlan = {
   updatedAt?: number
   updatedBy?: string
   version?: number
+  presetVersion?: string
 }
 
 export type DietMeal = {

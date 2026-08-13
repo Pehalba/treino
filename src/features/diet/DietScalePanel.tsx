@@ -5,7 +5,7 @@ import { Input } from '@/components/ui/Input'
 import { dietEditorService } from '@/services/dietEditorService'
 import { profileService } from '@/services/profileService'
 import type { DietPlan, Profile } from '@/types'
-import { mealMacroTotals } from '@/utils/dietMeals'
+import { firstMealPerCategory, mealMacroTotals } from '@/utils/dietMeals'
 import { scaleDiet, type MealWithItems } from '@/utils/dietScale'
 import { calcLayerA, macrosFromCalories } from '@/utils/dietTargets'
 import { formatGrams, formatKcal } from '@/utils/format'
@@ -26,7 +26,10 @@ export function DietScalePanel({
   weightKg: number | null
   onApplied: (meals: MealWithItems[]) => void
 }) {
-  const dietTotals = useMemo(() => mealMacroTotals(meals.flatMap((meal) => meal.items)), [meals])
+  const dietTotals = useMemo(
+    () => mealMacroTotals(firstMealPerCategory(meals).flatMap((meal) => meal.items)),
+    [meals],
+  )
   const layerA = calcLayerA({ profile, weightKg, dietKcal: dietTotals.calories })
   const suggested = 'error' in layerA ? null : layerA
   const [targetKcal, setTargetKcal] = useState('')

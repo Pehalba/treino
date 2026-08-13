@@ -11,6 +11,7 @@ import { reportService, type ReportFilter } from '@/services/reportService'
 import { weightService } from '@/services/weightService'
 import { workoutService } from '@/services/workoutService'
 import { progressService } from '@/services/progressService'
+import { useAppStore } from '@/store/appStore'
 import { MUSCLE_LABELS, MEAL_LABELS, REPORT_RANGES, type Exercise, type ExerciseSet, type FoodLog, type ReportRange, type WeightEntry, type WorkoutSession } from '@/types'
 import { formatDate, formatDuration, todayKey } from '@/utils/dates'
 import { formatKcal, formatKg, formatNumber, formatPercent } from '@/utils/format'
@@ -44,19 +45,26 @@ export function ReportsPage() {
 
   async function load() {
     if (!activeProfile) return
+    const profileId = activeProfile.id
     setLoading(true)
     setError('')
+    setSessions([])
+    setSets([])
+    setLogs([])
+    setWeights([])
+    setMeals([])
     try {
       const [sess, allSets, food, w, exercises, tpl, records, diet] = await Promise.all([
-        workoutService.listSessions(activeProfile.id, 200),
-        workoutService.listSetsByProfile(activeProfile.id),
-        nutritionService.listLogsByProfile(activeProfile.id),
-        weightService.list(activeProfile.id),
+        workoutService.listSessions(profileId, 200),
+        workoutService.listSetsByProfile(profileId),
+        nutritionService.listLogsByProfile(profileId),
+        weightService.list(profileId),
         exerciseService.listByHousehold(activeProfile.householdId),
-        workoutService.getTemplatesWithMeta(activeProfile.id, activeProfile.householdId),
-        workoutService.listRecords(activeProfile.id),
+        workoutService.getTemplatesWithMeta(profileId, activeProfile.householdId),
+        workoutService.listRecords(profileId),
         dietService.getActivePlan(activeProfile),
       ])
+      if (useAppStore.getState().activeProfile?.id !== profileId) return
       setSessions(sess)
       setSets(allSets)
       setLogs(food)

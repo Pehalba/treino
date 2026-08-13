@@ -41,39 +41,52 @@ export function HomePage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [starting, setStarting] = useState<string | null>(null)
-
-  async function load() {
-    if (!activeProfile) return
-    setLoading(true)
-    setError('')
-    try {
-      const [tpl, sess] = await Promise.all([
-        workoutService.getTemplatesWithMeta(activeProfile.id, activeProfile.householdId),
-        workoutService.listSessions(activeProfile.id, 20),
-      ])
-      setTemplates(tpl)
-      setSessions(sess)
-      setLoading(false)
-
-      const [food, w, recs, prefs] = await Promise.all([
-        nutritionService.listLogsSince(activeProfile.id, todayKey(weekStart())),
-        weightService.list(activeProfile.id),
-        workoutService.listRecords(activeProfile.id),
-        dashboardService.get(activeProfile.id),
-      ])
-      setLogs(food)
-      setWeights(w)
-      setRecords(recs)
-      setWidgets(prefs)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Falha ao carregar treinos.')
-      setLoading(false)
-    }
-  }
+  const [reloadToken, setReloadToken] = useState(0)
 
   useEffect(() => {
-    void load()
-  }, [activeProfile?.id])
+    if (!activeProfile) return
+    let alive = true
+    setLoading(true)
+    setError('')
+    setTemplates([])
+    setSessions([])
+    setLogs([])
+    setWeights([])
+    setRecords([])
+
+    const profileId = activeProfile.id
+    const householdId = activeProfile.householdId
+
+    void (async () => {
+      try {
+        const { templates, sessions } = await workoutService.getHomeBundle(profileId, householdId)
+        if (!alive) return
+        setTemplates(templates)
+        setSessions(sessions)
+        setLoading(false)
+
+        const [food, w, recs, prefs] = await Promise.all([
+          nutritionService.listLogsSince(profileId, todayKey(weekStart())),
+          weightService.list(profileId),
+          workoutService.listRecords(profileId),
+          dashboardService.get(profileId),
+        ])
+        if (!alive) return
+        setLogs(food)
+        setWeights(w)
+        setRecords(recs)
+        setWidgets(prefs)
+      } catch (err) {
+        if (!alive) return
+        setError(err instanceof Error ? err.message : 'Falha ao carregar treinos.')
+        setLoading(false)
+      }
+    })()
+
+    return () => {
+      alive = false
+    }
+  }, [activeProfile?.id, reloadToken])
 
   const local = activeProfile ? loadLocalSession(activeProfile.id) : null
   const active = sessions.find((s) => !s.completed) ?? (local && !local.session.completed ? local.session : null)
@@ -337,7 +350,7 @@ export function HomePage() {
           <Skeleton className="h-40" />
         </div>
       ) : error ? (
-        <ErrorState message={error} onRetry={() => void load()} />
+        <ErrorState message={error} onRetry={() => setReloadToken((n) => n + 1)} />
       ) : (
         <div className="space-y-4">
           {widgets

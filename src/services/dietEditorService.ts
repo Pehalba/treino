@@ -1,10 +1,14 @@
 import { commitAll, patchMany } from '@/repositories/base'
 import { nutritionRepository } from '@/repositories/nutritionRepository'
-import type { DietPreset } from '@/data/diets'
-import { dietPresetTotals } from '@/data/diets'
+import { DIET_PRESET_VERSION, dietPresetTotals, type DietPreset } from '@/data/diets'
 import type { DietMeal, DietMealItem, DietPlan, FoodSubstitute, MealCategory, Profile } from '@/types'
 import { auditFields, isLive } from '@/utils/audit'
+import { invalidateDietCache, markDietPresetInstalled } from '@/utils/dietCache'
 import { newId } from '@/utils/ids'
+
+function touchDiet(): void {
+  invalidateDietCache()
+}
 
 function requireName(value: string, label: string): string {
   const name = value.trim()
@@ -21,6 +25,7 @@ export const dietEditorService = {
     if (data.name != null) data.name = requireName(data.name, 'Nome da dieta')
     if (data.calorieGoal != null && data.calorieGoal < 0) throw new Error('Meta calórica inválida.')
     await nutritionRepository.updatePlan(planId, { ...data, ...auditFields(userId) })
+    touchDiet()
   },
 
   async updateMeal(
@@ -31,6 +36,7 @@ export const dietEditorService = {
     if (data.name != null) data.name = requireName(data.name, 'Nome da refeição')
     if (data.youtubeUrl != null) data.youtubeUrl = data.youtubeUrl.trim()
     await nutritionRepository.updateMeal(mealId, { ...data, ...auditFields(userId) })
+    touchDiet()
   },
 
   async archiveMeal(mealId: string, userId: string): Promise<void> {
@@ -39,6 +45,7 @@ export const dietEditorService = {
       archivedAt: Date.now(),
       ...auditFields(userId),
     })
+    touchDiet()
   },
 
   async reorderMeals(meals: DietMeal[], userId: string): Promise<void> {
@@ -49,6 +56,7 @@ export const dietEditorService = {
         data: { order: index, ...auditFields(userId) },
       })),
     )
+    touchDiet()
   },
 
   async addMeal(params: {
@@ -76,6 +84,7 @@ export const dietEditorService = {
     }
     await nutritionRepository.saveMeal(meal)
     await nutritionRepository.updatePlan(params.plan.id, auditFields(params.userId))
+    touchDiet()
     return meal
   },
 
@@ -109,6 +118,7 @@ export const dietEditorService = {
       if (value != null && value < 0) throw new Error('Valores nutricionais não podem ser negativos.')
     }
     await nutritionRepository.updateMealItem(itemId, { ...data, ...auditFields(userId) })
+    touchDiet()
   },
 
   async archiveItem(itemId: string, userId: string): Promise<void> {
@@ -117,6 +127,7 @@ export const dietEditorService = {
       archivedAt: Date.now(),
       ...auditFields(userId),
     })
+    touchDiet()
   },
 
   async reorderItems(items: DietMealItem[], userId: string): Promise<void> {
@@ -127,6 +138,7 @@ export const dietEditorService = {
         data: { order: index, ...auditFields(userId) },
       })),
     )
+    touchDiet()
   },
 
   async addItem(params: {
@@ -170,6 +182,7 @@ export const dietEditorService = {
       updatedBy: params.userId,
     }
     await nutritionRepository.saveMealItem(item)
+    touchDiet()
     return item
   },
 
@@ -190,13 +203,17 @@ export const dietEditorService = {
       version: 1,
     }
     await commitAll([{ collection: 'dietPlans', data: plan }])
+    touchDiet()
     return plan
   },
 
   async installPreset(params: { profile: Profile; diet: DietPreset; userId: string }): Promise<DietPlan | null> {
     const plans = await nutritionRepository.listPlans(params.profile.id)
     const already = plans.find((plan) => plan.name === params.diet.name && plan.isActive !== false && !plan.archivedAt)
-    if (already) return null
+    if (already && already.presetVersion === DIET_PRESET_VERSION) {
+      markDietPresetInstalled(params.profile.id, `${params.diet.name}@${DIET_PRESET_VERSION}`)
+      return already
+    }
 
     const now = Date.now()
     const toArchive = plans.filter((plan) => !plan.archivedAt)
@@ -225,6 +242,7 @@ export const dietEditorService = {
       updatedAt: now,
       updatedBy: params.userId,
       version: 1,
+      presetVersion: DIET_PRESET_VERSION,
     }
     const docs: Array<{ collection: string; data: DietPlan | DietMeal | DietMealItem }> = [
       { collection: 'dietPlans', data: plan },
@@ -279,6 +297,8 @@ export const dietEditorService = {
       })
     })
     await commitAll(docs)
+    markDietPresetInstalled(params.profile.id, `${params.diet.name}@${DIET_PRESET_VERSION}`)
+    touchDiet()
     return plan
   },
 
@@ -303,6 +323,7 @@ export const dietEditorService = {
         },
       })),
     )
+    touchDiet()
   },
 
   liveMeals<T extends DietMeal>(meals: T[]): T[] {

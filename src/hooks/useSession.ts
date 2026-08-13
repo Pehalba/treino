@@ -96,7 +96,15 @@ export function useAuthBootstrap(): void {
         if (cancelled) return
         applySession(user, profiles)
         saveBootCache(firebaseUser.uid, user, profiles)
-        void Promise.all(profiles.map((profile) => dietService.ensurePresetDiet(profile)))
+        const active = useAppStore.getState().activeProfile
+        if (active) {
+          const run = () => void dietService.ensurePresetDiet(active)
+          if (typeof window.requestIdleCallback === 'function') {
+            window.requestIdleCallback(run, { timeout: 4000 })
+          } else {
+            window.setTimeout(run, 2500)
+          }
+        }
         unsubProfiles = profileService.subscribeHouseholdProfiles(user.householdId, (items) => {
           const sorted = sortProfiles(items)
           setProfiles(sorted)
@@ -135,13 +143,16 @@ export function useSession() {
     if (!profile || !user) return
     setActiveProfile(profile)
     saveActiveProfileId(user.id, profile.id)
+    void dietService.ensurePresetDiet(profile)
   }
 
   function patchActiveProfile(data: Partial<Profile>) {
     if (!activeProfile) return
     const next = { ...activeProfile, ...data }
+    const nextProfiles = profiles.map((item) => (item.id === next.id ? next : item))
     setActiveProfile(next)
-    setProfiles(profiles.map((item) => (item.id === next.id ? next : item)))
+    setProfiles(nextProfiles)
+    if (user && firebaseUser) saveBootCache(firebaseUser.uid, user, nextProfiles)
   }
 
   return { firebaseUser, user, profiles, activeProfile, bootstrapping, selectProfile, patchActiveProfile }

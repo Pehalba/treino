@@ -6,6 +6,26 @@ import { workoutRepository } from '@/repositories/workoutRepository'
 import type { DietMeal, DietMealItem, DietPlan, Exercise, ImportPayload, WorkoutTemplate, WorkoutTemplateExercise } from '@/types'
 import { newId } from '@/utils/ids'
 
+function seededKey(profileId: string): string {
+  return `fit.seeded.${profileId}`
+}
+
+function alreadySeeded(profileId: string): boolean {
+  try {
+    return localStorage.getItem(seededKey(profileId)) === '1'
+  } catch {
+    return false
+  }
+}
+
+function markSeeded(profileId: string): void {
+  try {
+    localStorage.setItem(seededKey(profileId), '1')
+  } catch {
+    /* ignore */
+  }
+}
+
 export const seedService = {
   async ensureHouseholdCatalog(householdId: string): Promise<Map<string, Exercise>> {
     const existing = await exerciseRepository.listByHousehold(householdId)
@@ -51,11 +71,15 @@ export const seedService = {
   },
 
   async seedProfile(profileId: string, householdId: string): Promise<void> {
+    if (alreadySeeded(profileId)) return
     const [templates, plans] = await Promise.all([
       workoutRepository.listTemplates(profileId),
       nutritionRepository.listPlans(profileId),
     ])
-    if (templates.length > 0 && plans.length > 0) return
+    if (templates.length > 0 && plans.length > 0) {
+      markSeeded(profileId)
+      return
+    }
 
     const catalog = await this.ensureHouseholdCatalog(householdId)
     const docs: Array<{ collection: string; data: { id: string } & Record<string, unknown> }> = []
@@ -109,9 +133,11 @@ export const seedService = {
     }
 
     if (docs.length > 0) await commitAll(docs)
+    markSeeded(profileId)
   },
 
   async seedFromProfile(sourceProfileId: string, targetProfileId: string, householdId: string): Promise<void> {
+    if (alreadySeeded(targetProfileId)) return
     const existing = await workoutRepository.listTemplates(targetProfileId)
     if (existing.length > 0) {
       await this.seedProfile(targetProfileId, householdId)
@@ -152,6 +178,7 @@ export const seedService = {
     const plans = await nutritionRepository.listPlans(targetProfileId)
     if (plans.length === 0) docs.push(...this.dietDocs(targetProfileId, householdId))
     if (docs.length > 0) await commitAll(docs)
+    markSeeded(targetProfileId)
   },
 
   dietDocs(profileId: string, householdId: string): Array<{ collection: string; data: DietPlan | DietMeal | DietMealItem }> {

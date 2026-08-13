@@ -23,12 +23,15 @@ import { totalVolume } from '@/utils/volume'
 import { clearLocalSession, saveLocalSession, type LocalWorkoutSnapshot } from '@/utils/localSession'
 
 export const workoutService = {
-  async getTemplatesWithMeta(profileId: string, householdId?: string): Promise<TemplateWithMeta[]> {
+  async getHomeBundle(
+    profileId: string,
+    householdId?: string,
+  ): Promise<{ templates: TemplateWithMeta[]; sessions: WorkoutSession[] }> {
     const hid = householdId ?? ''
     const [templates, allTemplateExercises, sessions, exercises] = await Promise.all([
       workoutRepository.listTemplates(profileId),
       workoutRepository.listTemplateExercisesByProfile(profileId),
-      workoutRepository.listSessions(profileId, 20),
+      workoutRepository.listSessions(profileId, 40),
       hid ? exerciseRepository.listByHousehold(hid) : Promise.resolve([]),
     ])
     const catalog = exercises.length
@@ -38,25 +41,31 @@ export const workoutService = {
         : []
 
     const exerciseMap = new Map(catalog.map((item) => [item.id, item]))
+    return {
+      sessions,
+      templates: templates.filter(isLive).map((template) => {
+        const rows = allTemplateExercises
+          .filter((item) => item.templateId === template.id && isLive(item))
+          .sort((a, b) => a.order - b.order)
+        const related = sessions.filter((s) => s.workoutTemplateId === template.id && s.completed)
+        const last = related[0] ?? null
+        const avg =
+          related.length > 0
+            ? Math.round(related.reduce((sum, s) => sum + s.durationSeconds, 0) / related.length)
+            : null
+        return {
+          ...template,
+          exercises: rows.map((row) => ({ ...row, exercise: exerciseMap.get(row.exerciseId) ?? null })),
+          lastSessionAt: last?.startedAt ?? null,
+          averageDurationSeconds: avg,
+        }
+      }),
+    }
+  },
+
+  async getTemplatesWithMeta(profileId: string, householdId?: string): Promise<TemplateWithMeta[]> {
+    const { templates } = await this.getHomeBundle(profileId, householdId)
     return templates
-      .filter(isLive)
-      .map((template) => {
-      const rows = allTemplateExercises
-        .filter((item) => item.templateId === template.id && isLive(item))
-        .sort((a, b) => a.order - b.order)
-      const related = sessions.filter((s) => s.workoutTemplateId === template.id && s.completed)
-      const last = related[0] ?? null
-      const avg =
-        related.length > 0
-          ? Math.round(related.reduce((sum, s) => sum + s.durationSeconds, 0) / related.length)
-          : null
-      return {
-        ...template,
-        exercises: rows.map((row) => ({ ...row, exercise: exerciseMap.get(row.exerciseId) ?? null })),
-        lastSessionAt: last?.startedAt ?? null,
-        averageDurationSeconds: avg,
-      }
-    })
   },
 
   recommendedTemplate(templates: TemplateWithMeta[], sessions: WorkoutSession[]): TemplateWithMeta | null {

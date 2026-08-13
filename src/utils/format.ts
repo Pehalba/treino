@@ -27,3 +27,11 @@ export function parseLocaleNumber(input: string): number | null {
   const n = Number(normalized)
   return Number.isFinite(n) ? n : null
 }
+
+export function parseHeightCm(input: string): number | null {
+  const n = parseLocaleNumber(input)
+  if (n == null || n <= 0) return null
+  const cm = n < 3 ? n * 100 : n
+  if (cm < 80 || cm > 250) return null
+  return Math.round(cm)
+}

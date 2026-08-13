@@ -9,6 +9,7 @@ function normalizeFood(name: string): string {
 }
 
 const RULES: Array<{ test: string; role: FoodRole; protected?: boolean }> = [
+  { test: 'atum', role: 'protein_anchor' },
   { test: 'peito de frango', role: 'protein_anchor' },
   { test: 'patinho', role: 'protein_anchor' },
   { test: 'iogurte', role: 'protein_anchor' },
@@ -18,10 +19,15 @@ const RULES: Array<{ test: string; role: FoodRole; protected?: boolean }> = [
   { test: 'aveia', role: 'carb_adjust' },
   { test: 'banana', role: 'carb_adjust' },
   { test: 'tapioca', role: 'carb_adjust' },
+  { test: 'cuscuz', role: 'carb_adjust' },
+  { test: 'batata', role: 'carb_adjust' },
+  { test: 'mandioca', role: 'carb_adjust' },
+  { test: 'mamao', role: 'carb_adjust' },
   { test: 'pao', role: 'carb_adjust' },
   { test: 'mel', role: 'carb_adjust' },
   { test: 'feijao', role: 'carb_adjust', protected: true },
   { test: 'azeite', role: 'fat_adjust' },
+  { test: 'pasta de amendoim', role: 'fat_adjust' },
   { test: 'queijo', role: 'fat_adjust' },
   { test: 'leite', role: 'fat_adjust' },
   { test: 'molho de tomate', role: 'free_vegetable' },
@@ -40,8 +46,8 @@ export function isProtectedFood(name: string): boolean {
   return RULES.some((rule) => rule.protected && key.includes(rule.test))
 }
 
-export const CARB_ADD_ORDER = ['arroz', 'macarrao', 'aveia', 'tapioca', 'pao', 'banana', 'mel', 'feijao']
-export const CARB_REMOVE_ORDER = ['mel', 'banana', 'pao', 'tapioca', 'aveia', 'macarrao', 'arroz', 'feijao']
+export const CARB_ADD_ORDER = ['arroz', 'macarrao', 'cuscuz', 'batata', 'mandioca', 'aveia', 'tapioca', 'pao', 'banana', 'mamao', 'mel', 'feijao']
+export const CARB_REMOVE_ORDER = ['mel', 'banana', 'mamao', 'pao', 'tapioca', 'aveia', 'cuscuz', 'mandioca', 'batata', 'macarrao', 'arroz', 'feijao']
 
 export function carbPriorityIndex(name: string, direction: 'add' | 'remove'): number {
   const key = normalizeFood(name)

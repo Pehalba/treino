@@ -1,3 +1,4 @@
+import { presetGoalsForProfile } from '@/data/diets'
 import { profileRepository, buildProfile, buildProfileMember } from '@/repositories/profileRepository'
 import { seedService } from '@/services/seedService'
 import type { Household, Profile, ProfileAvatar, UserRecord } from '@/types'
@@ -96,16 +97,18 @@ export const profileService = {
     options: { seed?: boolean; avatar?: ProfileAvatar } = {},
   ): Promise<Profile> {
     const seed = options.seed ?? true
+    const avatar = options.avatar ?? avatarFromName(name)
+    const goals = presetGoalsForProfile(name, avatar)
     const profile = buildProfile({
       householdId: user.householdId,
       ownerUserId: user.id,
       name,
-      avatar: options.avatar ?? avatarFromName(name),
+      avatar,
       weeklyWorkoutGoal: 4,
-      calorieGoal: 3500,
-      proteinGoal: 180,
-      carbGoal: 400,
-      fatGoal: 90,
+      calorieGoal: goals?.calorieGoal ?? 3500,
+      proteinGoal: goals?.proteinGoal ?? 180,
+      carbGoal: goals?.carbGoal ?? 400,
+      fatGoal: goals?.fatGoal ?? 90,
       heightCm: null,
       weightGoalKg: null,
       timerSeconds: 120,
@@ -125,14 +128,17 @@ export const profileService = {
     return sortProfiles(await profileRepository.listHouseholdProfiles(user.householdId))
   },
 
-  async joinHousehold(uid: string, code: string): Promise<void> {
+  async joinHousehold(
+    uid: string,
+    code: string,
+  ): Promise<{ user: UserRecord; household: Household; profiles: Profile[] }> {
     const invite = await profileRepository.getInvite(code.trim().toUpperCase())
     if (!invite) throw new Error('Código inválido.')
     const household = await profileRepository.getHousehold(invite.householdId)
     if (!household) throw new Error('Grupo não encontrado.')
     await profileRepository.updateUser(uid, { householdId: household.id })
     const user = await profileRepository.getUser(uid)
-    if (!user) return
+    if (!user) throw new Error('Não foi possível entrar no grupo.')
     const profiles = await profileRepository.listHouseholdProfiles(household.id)
     const already = await profileRepository.listMembersForUser(uid)
     const alreadyIds = new Set(already.map((m) => m.profileId))
@@ -140,6 +146,7 @@ export const profileService = {
       if (alreadyIds.has(profile.id)) continue
       await profileRepository.saveMember(buildProfileMember(uid, profile.id, household.id, 'member'))
     }
+    return { user, household, profiles: sortProfiles(profiles) }
   },
 
   async updateProfile(

@@ -22,13 +22,13 @@ export function WorkoutsPage() {
   useEffect(() => {
     if (!activeProfile) return
     let alive = true
-    Promise.all([
-      workoutService.getTemplatesWithMeta(activeProfile.id, activeProfile.householdId),
-      workoutService.listSessions(activeProfile.id, 40),
-    ]).then(([tpl, sess]) => {
+    setLoading(true)
+    setTemplates([])
+    setSessions([])
+    void workoutService.getHomeBundle(activeProfile.id, activeProfile.householdId).then(({ templates, sessions }) => {
       if (!alive) return
-      setTemplates(tpl)
-      setSessions(sess)
+      setTemplates(templates)
+      setSessions(sessions)
       setLoading(false)
     })
     return () => {
