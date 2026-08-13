@@ -9,6 +9,7 @@ import {
   type User,
 } from 'firebase/auth'
 import { getFirebaseAuth, whenAuthPersistenceReady } from '@/firebase/app'
+import { clearBootCache } from '@/utils/localSession'
 
 export const authService = {
   async ready(): Promise<void> {
@@ -43,6 +44,7 @@ export const authService = {
   },
 
   async logout(): Promise<void> {
+    clearBootCache()
     await signOut(getFirebaseAuth())
   },
 }

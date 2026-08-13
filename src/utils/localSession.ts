@@ -1,4 +1,4 @@
-import type { WorkoutSession, WorkoutSessionExercise, ExerciseSet } from '@/types'
+import type { ExerciseSet, Profile, UserRecord, WorkoutSession, WorkoutSessionExercise } from '@/types'
 
 const PREFIX = 'fit.session.'
 
@@ -53,5 +53,41 @@ export function loadActiveProfileId(userId: string): string | null {
     return localStorage.getItem(`fit.activeProfile.${userId}`)
   } catch {
     return null
+  }
+}
+
+const BOOT_KEY = 'fit.boot'
+
+export type BootCache = {
+  uid: string
+  user: UserRecord
+  profiles: Profile[]
+}
+
+export function saveBootCache(uid: string, user: UserRecord, profiles: Profile[]): void {
+  try {
+    localStorage.setItem(BOOT_KEY, JSON.stringify({ uid, user, profiles }))
+  } catch {
+    /* ignore */
+  }
+}
+
+export function loadBootCache(): BootCache | null {
+  try {
+    const raw = localStorage.getItem(BOOT_KEY)
+    if (!raw) return null
+    const parsed = JSON.parse(raw) as BootCache
+    if (!parsed?.uid || !parsed.user || !Array.isArray(parsed.profiles) || parsed.profiles.length === 0) return null
+    return parsed
+  } catch {
+    return null
+  }
+}
+
+export function clearBootCache(): void {
+  try {
+    localStorage.removeItem(BOOT_KEY)
+  } catch {
+    /* ignore */
   }
 }

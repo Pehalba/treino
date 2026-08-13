@@ -23,6 +23,11 @@ export const profileService = {
   async bootstrapUser(uid: string, email: string, displayName: string): Promise<{ user: UserRecord; profile: Profile; profiles: Profile[] }> {
     const existing = await profileRepository.getUser(uid)
     if (existing) {
+      const current = sortProfiles(await profileRepository.listHouseholdProfiles(existing.householdId))
+      if (current.length > 0) {
+        void this.ensureDefaultProfiles(existing)
+        return { user: existing, profile: current[0], profiles: current }
+      }
       const profiles = await this.ensureDefaultProfiles(existing)
       const profile = profiles[0]
       if (!profile) throw new Error('Não foi possível carregar os perfis.')
@@ -66,14 +71,9 @@ export const profileService = {
       ? sortProfiles(await profileRepository.listHouseholdProfiles(user.householdId))
       : current
 
-    if (created.length === 0 && profiles.length > 0) {
-      setTimeout(() => {
-        void this.seedInBackground(user, profiles)
-      }, 2500)
-      return profiles
-    }
-
-    await this.seedInBackground(user, profiles)
+    setTimeout(() => {
+      void this.seedInBackground(user, profiles)
+    }, created.length === 0 ? 2500 : 0)
     return profiles
   },
 

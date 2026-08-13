@@ -1,11 +1,17 @@
 import { create } from 'zustand'
-import type { Profile, UserRecord } from '@/types'
 import type { User } from 'firebase/auth'
+import type { Profile, UserRecord } from '@/types'
+import { loadActiveProfileId, loadBootCache } from '@/utils/localSession'
 
 export type MinimizedWorkout = {
   id: string
   name: string
 }
+
+const cachedBoot = loadBootCache()
+const cachedActive = cachedBoot
+  ? (cachedBoot.profiles.find((item) => item.id === loadActiveProfileId(cachedBoot.user.id)) ?? null)
+  : null
 
 type AppState = {
   firebaseUser: User | null
@@ -25,10 +31,10 @@ type AppState = {
 
 export const useAppStore = create<AppState>((set) => ({
   firebaseUser: null,
-  user: null,
-  profiles: [],
-  activeProfile: null,
-  bootstrapping: true,
+  user: cachedBoot?.user ?? null,
+  profiles: cachedBoot?.profiles ?? [],
+  activeProfile: cachedActive,
+  bootstrapping: !cachedBoot,
   minimizedWorkout: null,
   setFirebaseUser: (firebaseUser) => set({ firebaseUser }),
   setUser: (user) => set({ user }),

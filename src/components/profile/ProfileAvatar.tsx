@@ -35,12 +35,12 @@ export function ProfileAvatar({
         'flex items-center justify-center overflow-hidden',
         size === 'sm' && 'h-8 w-8 rounded-full',
         size === 'md' && 'h-16 w-16 rounded-2xl',
-        size === 'lg' && 'h-28 w-28 rounded-2xl sm:h-32 sm:w-32',
+        size === 'lg' && 'h-20 w-20 rounded-2xl sm:h-32 sm:w-32',
         preset.className,
         className,
       )}
     >
-      <Icon size={size === 'sm' ? 18 : size === 'lg' ? 48 : 28} strokeWidth={2.2} />
+      <Icon size={size === 'sm' ? 18 : size === 'lg' ? 36 : 28} strokeWidth={2.2} />
     </div>
   )
 }

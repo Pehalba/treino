@@ -44,15 +44,23 @@ function BootScreen() {
   return (
     <div className="flex min-h-svh flex-col items-center justify-center bg-bg px-6 text-center">
       <p className="text-xs font-semibold tracking-[0.2em] text-accent uppercase">Pedro & Carol</p>
-      <h1 className="mt-3 font-display text-2xl">Preparando seus treinos</h1>
-      <p className="mt-2 max-w-xs text-sm text-muted">Na primeira vez isso pode levar alguns segundos.</p>
+      <h1 className="mt-3 font-display text-2xl">Carregando</h1>
+    </div>
+  )
+}
+
+function RouteFallback() {
+  return (
+    <div className="flex min-h-svh items-center justify-center bg-bg">
+      <p className="text-sm text-muted">Carregando…</p>
     </div>
   )
 }
 
 function Guard() {
-  const { firebaseUser, bootstrapping } = useSession()
-  if (bootstrapping || !firebaseUser) return <BootScreen />
+  const { firebaseUser, bootstrapping, user } = useSession()
+  if (!firebaseUser) return <BootScreen />
+  if (bootstrapping && !user) return <BootScreen />
   return <Outlet />
 }
 
@@ -68,7 +76,7 @@ export default function App() {
   if (!isFirebaseConfigured()) return <MissingFirebase />
 
   return (
-    <Suspense fallback={<BootScreen />}>
+    <Suspense fallback={<RouteFallback />}>
       <Routes>
         <Route path="/login" element={<LoginPage />} />
         <Route path="/cadastro" element={<SignupPage />} />

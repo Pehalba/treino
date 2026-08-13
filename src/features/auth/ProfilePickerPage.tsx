@@ -18,15 +18,15 @@ export function ProfilePickerPage() {
       <h1 className="mt-5 text-center font-display text-3xl font-semibold sm:text-5xl">Quem vai treinar?</h1>
       <p className="mt-3 text-center text-sm text-muted">Toque no perfil para entrar</p>
 
-      <ul className="mt-14 flex flex-wrap items-start justify-center gap-8 sm:gap-12">
+      <ul className="mt-10 grid w-full max-w-sm grid-cols-3 items-start gap-2 sm:mt-14 sm:max-w-lg sm:gap-8">
         {profiles.map((profile) => {
           const selected = profile.id === activeProfile?.id
           return (
-            <li key={profile.id}>
+            <li key={profile.id} className="min-w-0">
               <button
                 type="button"
                 onClick={() => pick(profile.id)}
-                className="group flex flex-col items-center gap-3 focus:outline-none"
+                className="group flex w-full flex-col items-center gap-2 focus:outline-none sm:gap-3"
               >
                 <div
                   className={cn(
@@ -38,7 +38,7 @@ export function ProfilePickerPage() {
                 </div>
                 <span
                   className={cn(
-                    'text-lg font-medium transition group-hover:text-ink',
+                    'w-full text-center text-sm font-medium leading-tight break-words transition group-hover:text-ink sm:text-lg',
                     selected ? 'text-ink' : 'text-muted',
                   )}
                 >

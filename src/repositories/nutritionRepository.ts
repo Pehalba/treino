@@ -36,9 +36,9 @@ export const nutritionRepository = {
 
   saveLog: (log: FoodLog) => createDoc('foodLogs', log),
   listLogsByDate: async (profileId: string, date: string) =>
-    listDocs<FoodLog>('foodLogs', where('profileId', '==', profileId), where('date', '==', date)),
+    (await listDocs<FoodLog>('foodLogs', where('profileId', '==', profileId))).filter((item) => item.date === date),
   listLogsSince: async (profileId: string, fromDate: string) =>
-    listDocs<FoodLog>('foodLogs', where('profileId', '==', profileId), where('date', '>=', fromDate)),
+    (await listDocs<FoodLog>('foodLogs', where('profileId', '==', profileId))).filter((item) => item.date >= fromDate),
   subscribeLogsByDate: (
     profileId: string,
     date: string,
@@ -47,8 +47,8 @@ export const nutritionRepository = {
   ): Unsubscribe =>
     subscribeDocs<FoodLog>(
       'foodLogs',
-      [where('profileId', '==', profileId), where('date', '==', date)],
-      onData,
+      [where('profileId', '==', profileId)],
+      (items) => onData(items.filter((item) => item.date === date)),
       onError,
     ),
   listLogsByProfile: async (profileId: string) =>

@@ -1,4 +1,4 @@
-import { limit, orderBy, where } from 'firebase/firestore'
+import { limit, where } from 'firebase/firestore'
 import { createDoc, getById, listDocs, patchDoc, subscribeDocs, upsertDoc } from '@/repositories/base'
 import type {
   ExerciseSet,
@@ -46,14 +46,7 @@ export const workoutRepository = {
   saveSession: (session: WorkoutSession) => upsertDoc('workoutSessions', session),
   updateSession: (id: string, data: Partial<WorkoutSession>) => patchDoc('workoutSessions', id, data),
   listSessions: async (profileId: string, max = 200) =>
-    sortSessions(
-      await listDocs<WorkoutSession>(
-        'workoutSessions',
-        where('profileId', '==', profileId),
-        orderBy('startedAt', 'desc'),
-        limit(max),
-      ),
-    ),
+    sortSessions(await listDocs<WorkoutSession>('workoutSessions', where('profileId', '==', profileId))).slice(0, max),
   subscribeSessions: (
     profileId: string,
     onData: (items: WorkoutSession[]) => void,
@@ -61,18 +54,14 @@ export const workoutRepository = {
   ): Unsubscribe =>
     subscribeDocs<WorkoutSession>(
       'workoutSessions',
-      [where('profileId', '==', profileId), orderBy('startedAt', 'desc'), limit(40)],
-      (items) => onData(sortSessions(items)),
+      [where('profileId', '==', profileId)],
+      (items) => onData(sortSessions(items).slice(0, 40)),
       onError,
     ),
   listIncompleteSessions: async (profileId: string) =>
-    listDocs<WorkoutSession>(
-      'workoutSessions',
-      where('profileId', '==', profileId),
-      where('completed', '==', false),
-      orderBy('startedAt', 'desc'),
-      limit(5),
-    ),
+    sortSessions(await listDocs<WorkoutSession>('workoutSessions', where('profileId', '==', profileId)))
+      .filter((s) => !s.completed)
+      .slice(0, 5),
 
   saveSessionExercise: (item: WorkoutSessionExercise) => upsertDoc('workoutSessionExercises', item),
   updateSessionExercise: (id: string, data: Partial<WorkoutSessionExercise>) =>
@@ -108,13 +97,12 @@ export const workoutRepository = {
   ): Unsubscribe =>
     subscribeDocs<ExerciseSet>('exerciseSets', [where('workoutSessionId', '==', workoutSessionId)], onData, onError),
   listSetsByExercise: async (profileId: string, exerciseId: string) =>
-    listDocs<ExerciseSet>(
-      'exerciseSets',
-      where('profileId', '==', profileId),
-      where('exerciseId', '==', exerciseId),
-      orderBy('createdAt', 'desc'),
-      limit(40),
-    ),
+    (
+      await listDocs<ExerciseSet>('exerciseSets', where('profileId', '==', profileId))
+    )
+      .filter((item) => item.exerciseId === exerciseId)
+      .sort((a, b) => b.createdAt - a.createdAt)
+      .slice(0, 40),
   listSetsByProfile: async (profileId: string, max = 2000) =>
     (await listDocs<ExerciseSet>('exerciseSets', where('profileId', '==', profileId), limit(max))).sort(
       (a, b) => b.createdAt - a.createdAt,
