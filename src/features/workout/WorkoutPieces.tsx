@@ -79,7 +79,7 @@ export function SetForm({
       <NumberStepper value={reps} onChange={onReps} step={1} min={0} />
       <p className="mt-4 text-sm text-muted">Quantas séries vou fazer</p>
       <div className="mt-2 grid grid-cols-4 gap-2">
-        {[2, 3, 4, 5].map((value) => (
+        {[1, 2, 3, 4].map((value) => (
           <button
             key={value}
             type="button"
@@ -213,6 +213,17 @@ export function TimerEditModal({
       </div>
       <Button className="mt-5 w-full" size="xl" onClick={onSave}>
         Salvar no perfil
+      </Button>
+    </Modal>
+  )
+}
+
+export function TimerDoneModal({ open, onClose }: { open: boolean; onClose: () => void }) {
+  return (
+    <Modal open={open} onClose={onClose} title="Timer terminou" className="timer-done-flash">
+      <p className="text-sm text-muted">O tempo acabou. Pode seguir para a próxima série.</p>
+      <Button className="mt-5 w-full" size="xl" onClick={onClose}>
+        Ok
       </Button>
     </Modal>
   )

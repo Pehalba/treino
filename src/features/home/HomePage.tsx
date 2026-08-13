@@ -1,4 +1,5 @@
 import { AppShell } from '@/components/layout/AppShell'
+import { WorkoutName } from '@/components/workout/WorkoutName'
 import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
 import { EditButton } from '@/components/ui/EditButton'
@@ -74,7 +75,6 @@ export function HomePage() {
     void load()
   }, [activeProfile?.id])
 
-  const recommended = workoutService.recommendedTemplate(templates, sessions)
   const local = activeProfile ? loadLocalSession(activeProfile.id) : null
   const active = sessions.find((s) => !s.completed) ?? (local && !local.session.completed ? local.session : null)
   const todayLogs = useMemo(() => logs.filter((item) => item.date === todayKey()), [logs])
@@ -119,30 +119,15 @@ export function HomePage() {
   function renderWidget(id: DashboardWidgetId) {
     switch (id) {
       case 'today_workout':
-        if (active) {
-          return (
-            <Card className="border border-accent/30">
-              <p className="text-xs font-semibold tracking-widest text-accent uppercase">Treino em andamento</p>
-              <h2 className="mt-1 font-display text-2xl">{active.templateName}</h2>
-              <Button className="mt-4 w-full" size="xl" onClick={() => navigate(`/treino/${active.id}`)}>
-                Continuar
-              </Button>
-            </Card>
-          )
-        }
-        if (!recommended) return null
+        if (!active) return null
         return (
-          <Card>
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <p className="text-xs font-semibold tracking-widest text-muted uppercase">Treino de hoje</p>
-                <h2 className="mt-1 font-display text-2xl">{recommended.name}</h2>
-                <p className="text-sm text-muted">{recommended.exercises.length} exercícios · sugestão</p>
-              </div>
-              <EditButton to={`/treinos/${recommended.id}/editar`} />
-            </div>
-            <Button className="mt-4 w-full" size="xl" onClick={() => start(recommended)} disabled={Boolean(starting)}>
-              Iniciar {recommended.name}
+          <Card className="border border-accent/30">
+            <p className="text-xs font-semibold tracking-widest text-accent uppercase">Treino em andamento</p>
+            <h2 className="mt-1 font-display text-2xl">
+              <WorkoutName name={active.templateName} />
+            </h2>
+            <Button className="mt-4 w-full" size="xl" onClick={() => navigate(`/treino/${active.id}`)}>
+              Continuar
             </Button>
           </Card>
         )
@@ -158,7 +143,9 @@ export function HomePage() {
                   <Card key={template.id}>
                     <div className="flex items-start justify-between gap-3">
                       <div>
-                        <h3 className="font-display text-xl">{template.name}</h3>
+                        <h3 className="font-display text-xl">
+                          <WorkoutName name={template.name} />
+                        </h3>
                         <p className="mt-1 text-sm text-muted">{template.exercises.length} exercícios</p>
                         <p className="text-sm text-muted">
                           Último treino: {template.lastSessionAt ? formatDate(template.lastSessionAt) : '—'}

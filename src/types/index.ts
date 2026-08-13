@@ -441,7 +441,7 @@ export const DASHBOARD_WIDGET_LABELS: Record<DashboardWidgetId, string> = {
 }
 
 export const DEFAULT_DASHBOARD_WIDGETS: Array<{ id: DashboardWidgetId; visible: boolean }> = [
-  { id: 'today_workout', visible: true },
+  { id: 'today_workout', visible: false },
   { id: 'workout_list', visible: true },
   { id: 'weekly_goal', visible: true },
   { id: 'calories_consumed', visible: true },

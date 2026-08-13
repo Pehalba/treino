@@ -1,3 +1,4 @@
+import { WorkoutName } from '@/components/workout/WorkoutName'
 import { AppShell } from '@/components/layout/AppShell'
 import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
@@ -53,7 +54,9 @@ export function WorkoutsPage() {
           {templates.map((t) => (
             <Card key={t.id} className="flex items-center justify-between gap-3">
               <div>
-                <h3 className="font-display text-xl">{t.name}</h3>
+                <h3 className="font-display text-xl">
+                  <WorkoutName name={t.name} />
+                </h3>
                 <p className="text-sm text-muted">{t.exercises.length} exercícios</p>
               </div>
               <div className="flex flex-col items-end gap-2">

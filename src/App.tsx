@@ -43,8 +43,7 @@ function MissingFirebase() {
 function BootScreen() {
   return (
     <div className="flex min-h-svh flex-col items-center justify-center bg-bg px-6 text-center">
-      <p className="text-xs font-semibold tracking-[0.2em] text-accent uppercase">Pedro & Carol</p>
-      <h1 className="mt-3 font-display text-2xl">Carregando</h1>
+      <h1 className="font-display text-2xl">Carregando</h1>
     </div>
   )
 }

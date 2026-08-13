@@ -1,3 +1,4 @@
+import { WorkoutName } from '@/components/workout/WorkoutName'
 import { Button } from '@/components/ui/Button'
 import { Modal } from '@/components/ui/Modal'
 import { ErrorState } from '@/components/ui/ErrorState'
@@ -10,6 +11,7 @@ import {
   ReplaceModal,
   SetForm,
   SkipModal,
+  TimerDoneModal,
   TimerEditModal,
   VideoModal,
   WorkoutSummary,
@@ -468,7 +470,9 @@ export function WorkoutModePage() {
     <div className="min-h-svh bg-bg px-4 pb-8 pt-4">
       <header className="flex items-start justify-between gap-3">
         <div>
-          <p className="text-xs font-semibold tracking-widest text-muted uppercase">{session.templateName}</p>
+          <p className="font-display text-lg">
+            <WorkoutName name={session.templateName} iconClassName="h-6 w-6" />
+          </p>
           <p className="mt-1 text-sm">
             Exercício {index + 1} de {exercises.length}
           </p>
@@ -592,6 +596,7 @@ export function WorkoutModePage() {
         onClose={() => setTimerOpen(false)}
         onSave={() => void saveTimer()}
       />
+      <TimerDoneModal open={rest.finished} onClose={rest.clearFinished} />
       <SkipModal open={skipOpen} onClose={() => setSkipOpen(false)} onReason={(r) => void applySkip(r)} />
       <OccupiedModal
         open={occupiedOpen}
