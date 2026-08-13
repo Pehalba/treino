@@ -8,22 +8,34 @@ import { youtubeEmbedUrl, youtubeWatchUrl } from '@/utils/ids'
 import { repsPattern, workingWeight } from '@/utils/volume'
 import { cn } from '@/utils/cn'
 
-export function VideoModal({ url, open, onClose }: { url: string; open: boolean; onClose: () => void }) {
+export function VideoModal({
+  url,
+  open,
+  onClose,
+  title = 'Execução',
+}: {
+  url: string
+  open: boolean
+  onClose: () => void
+  title?: string
+}) {
   const embed = youtubeEmbedUrl(url)
   return (
-    <Modal open={open} onClose={onClose} title="Execução">
+    <Modal open={open} onClose={onClose} title={title}>
       {embed ? (
         <div className="aspect-video overflow-hidden rounded-2xl bg-black">
-          <iframe title="Vídeo do exercício" src={embed} className="h-full w-full" allow="autoplay; encrypted-media" allowFullScreen />
+          <iframe title={title} src={embed} className="h-full w-full" allow="autoplay; encrypted-media" allowFullScreen />
         </div>
       ) : (
-        <p className="text-sm text-muted">Vídeo ainda não cadastrado para este exercício.</p>
+        <p className="text-sm text-muted">Vídeo ainda não cadastrado.</p>
       )}
-      <a href={youtubeWatchUrl(url)} target="_blank" rel="noreferrer" className="mt-4 block">
-        <Button className="w-full" variant="secondary">
-          Abrir no YouTube
-        </Button>
-      </a>
+      {url ? (
+        <a href={youtubeWatchUrl(url)} target="_blank" rel="noreferrer" className="mt-4 block">
+          <Button className="w-full" variant="secondary">
+            Abrir no YouTube
+          </Button>
+        </a>
+      ) : null}
     </Modal>
   )
 }

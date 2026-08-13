@@ -33,6 +33,7 @@
       {
         "category": "breakfast",
         "name": "Café da manhã",
+        "youtubeUrl": "",
         "items": [
           {
             "foodName": "Alimento",

@@ -2,6 +2,7 @@ import { useEffect } from 'react'
 import { getDb } from '@/firebase/app'
 import { isFirebaseConfigured } from '@/firebase/config'
 import { authService } from '@/services/authService'
+import { dietService } from '@/services/nutritionService'
 import { profileService, sortProfiles } from '@/services/profileService'
 import { useAppStore } from '@/store/appStore'
 import {
@@ -95,6 +96,7 @@ export function useAuthBootstrap(): void {
         if (cancelled) return
         applySession(user, profiles)
         saveBootCache(firebaseUser.uid, user, profiles)
+        void Promise.all(profiles.map((profile) => dietService.ensurePresetDiet(profile)))
         unsubProfiles = profileService.subscribeHouseholdProfiles(user.householdId, (items) => {
           const sorted = sortProfiles(items)
           setProfiles(sorted)

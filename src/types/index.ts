@@ -46,22 +46,25 @@ export const EQUIPMENT_LABELS: Record<Equipment, string> = {
 
 export const MEAL_CATEGORIES = [
   'breakfast',
+  'morning_snack',
   'lunch',
-  'snack',
+  'afternoon_snack',
   'dinner',
   'supper',
   'other',
 ] as const
 
-export type MealCategory = (typeof MEAL_CATEGORIES)[number]
+export type MealCategory = (typeof MEAL_CATEGORIES)[number] | 'snack'
 
 export const MEAL_LABELS: Record<MealCategory, string> = {
   breakfast: 'Café da manhã',
+  morning_snack: 'Lanche da manhã',
   lunch: 'Almoço',
-  snack: 'Lanche',
+  afternoon_snack: 'Lanche da tarde',
+  snack: 'Lanche da tarde',
   dinner: 'Jantar',
   supper: 'Ceia',
-  other: 'Outro',
+  other: 'Extra',
 }
 
 export const SESSION_EXERCISE_STATUS = [
@@ -311,6 +314,7 @@ export type DietMeal = {
   order: number
   name: string
   notes?: string
+  youtubeUrl?: string
   active?: boolean
   archivedAt?: number | null
   updatedAt?: number
@@ -485,6 +489,7 @@ export type ImportPayload = {
     meals: Array<{
       category: MealCategory
       name?: string
+      youtubeUrl?: string
       items: Array<{
         foodName: string
         calories: number

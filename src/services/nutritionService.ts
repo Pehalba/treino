@@ -1,13 +1,40 @@
 import { nutritionRepository } from '@/repositories/nutritionRepository'
+import { presetForProfile, dietPresetTotals } from '@/data/diets'
+import { dietEditorService } from '@/services/dietEditorService'
+import { profileService } from '@/services/profileService'
 import type { DietMeal, DietMealItem, DietPlan, FoodLog, MealCategory, Profile, UserRecord } from '@/types'
 import { todayKey } from '@/utils/dates'
 import { newId } from '@/utils/ids'
 
 export const dietService = {
-  async getActivePlan(profileId: string): Promise<{
+  async ensurePresetDiet(profile: Profile): Promise<void> {
+    const preset = presetForProfile(profile.name, profile.avatar)
+    if (!preset) return
+    const installed = await dietEditorService.installPreset({
+      profile,
+      diet: preset,
+      userId: profile.ownerUserId,
+    })
+    if (!installed) return
+    const totals = dietPresetTotals(preset)
+    await profileService.updateProfile(
+      profile.id,
+      {
+        calorieGoal: Math.round(totals.calories),
+        proteinGoal: Math.round(totals.protein),
+        carbGoal: Math.round(totals.carbs),
+        fatGoal: Math.round(totals.fat),
+      },
+      profile.ownerUserId,
+    )
+  },
+
+  async getActivePlan(profile: Profile | string): Promise<{
     plan: DietPlan | null
     meals: Array<DietMeal & { items: DietMealItem[] }>
   }> {
+    const profileId = typeof profile === 'string' ? profile : profile.id
+    if (typeof profile !== 'string') await this.ensurePresetDiet(profile)
     const plans = await nutritionRepository.listPlans(profileId)
     const plan = plans.find((p) => p.isActive && !p.archivedAt) ?? plans.find((p) => !p.archivedAt) ?? null
     if (!plan) return { plan: null, meals: [] }
@@ -67,24 +94,29 @@ export const nutritionService = {
     meal: DietMeal & { items: DietMealItem[] }
     date?: string
   }): Promise<FoodLog[]> {
-    const logs: FoodLog[] = []
-    for (const item of params.meal.items) {
-      logs.push(
-        await this.logFood({
-          user: params.user,
-          profile: params.profile,
-          category: params.meal.category,
-          name: item.foodName,
-          calories: item.calories,
-          protein: item.protein,
-          carbs: item.carbs,
-          fat: item.fat,
-          date: params.date,
-          fromDietMealId: params.meal.id,
-        }),
-      )
-    }
-    return logs
+    if (params.meal.items.length === 0) return []
+    const totals = params.meal.items.reduce(
+      (acc, item) => ({
+        calories: acc.calories + item.calories,
+        protein: acc.protein + item.protein,
+        carbs: acc.carbs + item.carbs,
+        fat: acc.fat + item.fat,
+      }),
+      { calories: 0, protein: 0, carbs: 0, fat: 0 },
+    )
+    const log = await this.logFood({
+      user: params.user,
+      profile: params.profile,
+      category: params.meal.category,
+      name: params.meal.name,
+      calories: totals.calories,
+      protein: totals.protein,
+      carbs: totals.carbs,
+      fat: totals.fat,
+      date: params.date,
+      fromDietMealId: params.meal.id,
+    })
+    return [log]
   },
 
   totals(logs: FoodLog[]): { calories: number; protein: number; carbs: number; fat: number } {

@@ -2,130 +2,112 @@ import { AppShell } from '@/components/layout/AppShell'
 import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
 import { EditButton } from '@/components/ui/EditButton'
-import { EmptyState } from '@/components/ui/EmptyState'
-import { Input } from '@/components/ui/Input'
-import { Modal } from '@/components/ui/Modal'
 import { Skeleton } from '@/components/ui/Skeleton'
+import { VideoModal } from '@/features/workout/WorkoutPieces'
 import { useSession } from '@/hooks/useSession'
-import { dietService, nutritionService } from '@/services/nutritionService'
+import { dietService } from '@/services/nutritionService'
 import type { DietMeal, DietMealItem } from '@/types'
-import { MEAL_LABELS } from '@/types'
+import { groupMealsByMenuCategory, mealMacroTotals } from '@/utils/dietMeals'
 import { formatKcal } from '@/utils/format'
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
+import { Link } from 'react-router-dom'
 
 type MealWithItems = DietMeal & { items: DietMealItem[] }
 
 export function DietPage() {
-  const { user, activeProfile } = useSession()
+  const { activeProfile } = useSession()
   const [meals, setMeals] = useState<MealWithItems[]>([])
-  const [planName, setPlanName] = useState('')
+  const [planName, setPlanName] = useState('Minha dieta')
   const [loading, setLoading] = useState(true)
-  const [editing, setEditing] = useState<MealWithItems | null>(null)
-  const [draftItems, setDraftItems] = useState<DietMealItem[]>([])
-
-  async function load() {
-    if (!activeProfile) return
-    setLoading(true)
-    const data = await dietService.getActivePlan(activeProfile.id)
-    setPlanName(data.plan?.name ?? 'Minha dieta')
-    setMeals(data.meals)
-    setLoading(false)
-  }
+  const [videoMeal, setVideoMeal] = useState<MealWithItems | null>(null)
 
   useEffect(() => {
-    void load()
+    if (!activeProfile) return
+    let alive = true
+    setLoading(true)
+    dietService.getActivePlan(activeProfile).then((data) => {
+      if (!alive) return
+      setPlanName(data.plan?.name ?? 'Minha dieta')
+      setMeals(data.meals)
+      setLoading(false)
+    })
+    return () => {
+      alive = false
+    }
   }, [activeProfile?.id])
 
-  async function eat(meal: MealWithItems, items = meal.items) {
-    if (!user || !activeProfile) return
-    await nutritionService.logPlannedMeal({
-      user,
-      profile: activeProfile,
-      meal: { ...meal, items },
-    })
-    setEditing(null)
-  }
+  const sections = useMemo(() => groupMealsByMenuCategory(meals), [meals])
 
   return (
     <AppShell title="Dietas">
-      <p className="mb-4 text-sm text-muted">O que está planejado para comer. Registrar aqui envia para Calorias.</p>
+      <p className="mb-4 text-sm text-muted">
+        Aqui você só vê o plano e como preparar. Para anotar o que comeu, use Calorias.
+      </p>
       {loading ? (
         <Skeleton className="h-64" />
-      ) : meals.length === 0 ? (
-        <div>
-          <EmptyState
-            title="Nenhuma dieta cadastrada"
-            description="Monte a dieta pelo botão Editar. O que você já comeu em dias anteriores não muda."
-          />
-          <div className="mt-4 flex justify-center">
-            <EditButton to="/dietas/editar" />
-          </div>
-        </div>
       ) : (
         <>
-          <div className="mb-3 flex items-center justify-between gap-3">
+          <div className="mb-5 flex items-center justify-between gap-3">
             <h2 className="font-display text-2xl">{planName}</h2>
             <EditButton to="/dietas/editar" />
           </div>
-          <div className="space-y-3">
-            {meals.map((meal) => {
-              const kcal = meal.items.reduce((s, i) => s + i.calories, 0)
-              return (
-                <Card key={meal.id}>
-                  <h3 className="font-display text-lg">{meal.name || MEAL_LABELS[meal.category]}</h3>
-                  <ul className="mt-2 space-y-1 text-sm text-muted">
-                    {meal.items.map((item) => (
-                      <li key={item.id}>
-                        {item.foodName}
-                        {item.quantityLabel ? ` · ${item.quantityLabel}` : ''} · {formatKcal(item.calories)}
-                      </li>
-                    ))}
-                  </ul>
-                  <p className="mt-2 text-sm">{formatKcal(kcal)}</p>
-                  <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-2">
-                    <Button onClick={() => void eat(meal)}>✓ Comi esta refeição</Button>
-                    <Button
-                      variant="secondary"
-                      onClick={() => {
-                        setEditing(meal)
-                        setDraftItems(meal.items)
-                      }}
-                    >
-                      Editar antes de registrar
-                    </Button>
+          <div className="space-y-6">
+            {sections.map((section) => (
+              <section key={section.category}>
+                <h3 className="mb-2 text-xs font-semibold tracking-widest text-muted uppercase">{section.label}</h3>
+                {section.meals.length === 0 ? (
+                  <Card className="border border-dashed border-line bg-transparent">
+                    <p className="text-sm text-muted">Nenhum prato ainda.</p>
+                  </Card>
+                ) : (
+                  <div className="space-y-3">
+                    {section.meals.map((meal) => {
+                      const totals = mealMacroTotals(meal.items)
+                      return (
+                        <Card key={meal.id}>
+                          <h4 className="font-display text-lg">{meal.name || section.label}</h4>
+                          {meal.items.length === 0 ? (
+                            <p className="mt-2 text-sm text-muted">Ainda sem alimentos neste prato.</p>
+                          ) : (
+                            <>
+                              <ul className="mt-2 space-y-1 text-sm text-muted">
+                                {meal.items.map((item) => (
+                                  <li key={item.id}>
+                                    {item.foodName}
+                                    {item.quantityLabel ? ` · ${item.quantityLabel}` : ''} · {formatKcal(item.calories)}
+                                  </li>
+                                ))}
+                              </ul>
+                              <p className="mt-2 text-sm font-semibold">{formatKcal(totals.calories)}</p>
+                            </>
+                          )}
+                          {meal.youtubeUrl ? (
+                            <Button className="mt-4 w-full" variant="secondary" onClick={() => setVideoMeal(meal)}>
+                              Como preparar
+                            </Button>
+                          ) : null}
+                        </Card>
+                      )
+                    })}
                   </div>
-                </Card>
-              )
-            })}
+                )}
+              </section>
+            ))}
           </div>
+          <Link
+            to="/calorias"
+            className="mt-6 flex min-h-12 items-center justify-center rounded-2xl bg-accent px-5 text-base font-semibold text-bg"
+          >
+            Ir para registrar em Calorias
+          </Link>
         </>
       )}
-
-      <Modal open={Boolean(editing)} onClose={() => setEditing(null)} title="Ajustar antes de registrar">
-        <div className="space-y-3">
-          {draftItems.map((item, index) => (
-            <div key={item.id} className="rounded-2xl bg-card2 p-3">
-              <p className="text-sm font-medium">{item.foodName}</p>
-              <Input
-                className="mt-2"
-                inputMode="decimal"
-                value={String(item.calories)}
-                onChange={(e) => {
-                  const next = [...draftItems]
-                  next[index] = { ...item, calories: Number(e.target.value) || 0 }
-                  setDraftItems(next)
-                }}
-              />
-            </div>
-          ))}
-        </div>
-        <Button
-          className="mt-4 w-full"
-          onClick={() => editing && void eat(editing, draftItems)}
-        >
-          Registrar em calorias
-        </Button>
-      </Modal>
+      <VideoModal
+        title="Como preparar"
+        url={videoMeal?.youtubeUrl ?? ''}
+        open={Boolean(videoMeal)}
+        onClose={() => setVideoMeal(null)}
+      />
     </AppShell>
   )
 }

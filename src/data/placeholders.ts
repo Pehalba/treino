@@ -485,7 +485,7 @@ export type PlaceholderMealItem = {
 
 export const PLACEHOLDER_DIET: {
   name: string
-  meals: Array<{ category: MealCategory; name: string; items: PlaceholderMealItem[] }>
+  meals: Array<{ category: MealCategory; name: string; youtubeUrl?: string; items: PlaceholderMealItem[] }>
 } = {
   name: 'Dieta placeholder',
   meals: [
@@ -506,8 +506,8 @@ export const PLACEHOLDER_DIET: {
       ],
     },
     {
-      category: 'snack',
-      name: 'Lanche',
+      category: 'afternoon_snack',
+      name: 'Lanche da tarde',
       items: [{ foodName: 'Alimento placeholder 5', calories: 280, protein: 20, carbs: 28, fat: 8, quantityLabel: '1 porção' }],
     },
     {

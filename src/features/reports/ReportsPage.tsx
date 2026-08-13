@@ -55,7 +55,7 @@ export function ReportsPage() {
         exerciseService.listByHousehold(activeProfile.householdId),
         workoutService.getTemplatesWithMeta(activeProfile.id, activeProfile.householdId),
         workoutService.listRecords(activeProfile.id),
-        dietService.getActivePlan(activeProfile.id),
+        dietService.getActivePlan(activeProfile),
       ])
       setSessions(sess)
       setSets(allSets)

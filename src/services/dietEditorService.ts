@@ -1,5 +1,7 @@
 import { commitAll, patchMany } from '@/repositories/base'
 import { nutritionRepository } from '@/repositories/nutritionRepository'
+import type { DietPreset } from '@/data/diets'
+import { dietPresetTotals } from '@/data/diets'
 import type { DietMeal, DietMealItem, DietPlan, FoodSubstitute, MealCategory, Profile } from '@/types'
 import { auditFields, isLive } from '@/utils/audit'
 import { newId } from '@/utils/ids'
@@ -23,10 +25,11 @@ export const dietEditorService = {
 
   async updateMeal(
     mealId: string,
-    data: Partial<Pick<DietMeal, 'name' | 'category' | 'notes'>>,
+    data: Partial<Pick<DietMeal, 'name' | 'category' | 'notes' | 'youtubeUrl'>>,
     userId: string,
   ): Promise<void> {
     if (data.name != null) data.name = requireName(data.name, 'Nome da refeição')
+    if (data.youtubeUrl != null) data.youtubeUrl = data.youtubeUrl.trim()
     await nutritionRepository.updateMeal(mealId, { ...data, ...auditFields(userId) })
   },
 
@@ -65,6 +68,7 @@ export const dietEditorService = {
       order: params.order,
       name: requireName(params.name, 'Nome da refeição'),
       notes: '',
+      youtubeUrl: '',
       active: true,
       archivedAt: null,
       updatedAt: Date.now(),
@@ -160,6 +164,88 @@ export const dietEditorService = {
       version: 1,
     }
     await commitAll([{ collection: 'dietPlans', data: plan }])
+    return plan
+  },
+
+  async installPreset(params: { profile: Profile; diet: DietPreset; userId: string }): Promise<DietPlan | null> {
+    const plans = await nutritionRepository.listPlans(params.profile.id)
+    const already = plans.find((plan) => plan.name === params.diet.name && plan.isActive !== false && !plan.archivedAt)
+    if (already) return null
+
+    const now = Date.now()
+    const toArchive = plans.filter((plan) => !plan.archivedAt)
+    if (toArchive.length > 0) {
+      await patchMany(
+        toArchive.map((plan) => ({
+          collection: 'dietPlans',
+          id: plan.id,
+          data: { isActive: false, archivedAt: now, ...auditFields(params.userId) },
+        })),
+      )
+    }
+
+    const totals = dietPresetTotals(params.diet)
+    const plan: DietPlan = {
+      id: newId(),
+      profileId: params.profile.id,
+      householdId: params.profile.householdId,
+      name: params.diet.name,
+      calorieGoal: Math.round(totals.calories),
+      notes: '',
+      isActive: true,
+      isPlaceholder: false,
+      archivedAt: null,
+      createdAt: now,
+      updatedAt: now,
+      updatedBy: params.userId,
+      version: 1,
+    }
+    const docs: Array<{ collection: string; data: DietPlan | DietMeal | DietMealItem }> = [
+      { collection: 'dietPlans', data: plan },
+    ]
+    params.diet.meals.forEach((mealDef, mealOrder) => {
+      const meal: DietMeal = {
+        id: newId(),
+        profileId: params.profile.id,
+        householdId: params.profile.householdId,
+        dietPlanId: plan.id,
+        category: mealDef.category,
+        order: mealOrder,
+        name: mealDef.name,
+        notes: '',
+        youtubeUrl: mealDef.youtubeUrl ?? '',
+        active: true,
+        archivedAt: null,
+        updatedAt: now,
+        updatedBy: params.userId,
+      }
+      docs.push({ collection: 'dietMeals', data: meal })
+      mealDef.items.forEach((item, itemOrder) => {
+        docs.push({
+          collection: 'dietMealItems',
+          data: {
+            id: newId(),
+            profileId: params.profile.id,
+            householdId: params.profile.householdId,
+            dietMealId: meal.id,
+            foodName: item.foodName,
+            calories: item.calories,
+            protein: item.protein,
+            carbs: item.carbs,
+            fat: item.fat,
+            quantityLabel: item.quantityLabel,
+            notes: '',
+            substitutes: [],
+            order: itemOrder,
+            active: true,
+            archivedAt: null,
+            updatedAt: now,
+            updatedBy: params.userId,
+          },
+        })
+      })
+    })
+    await commitAll(docs)
     return plan
   },
 

@@ -181,6 +181,7 @@ export const seedService = {
         order: mealOrder,
         name: mealDef.name,
         notes: '',
+        youtubeUrl: mealDef.youtubeUrl ?? '',
         active: true,
         archivedAt: null,
       }
@@ -326,6 +327,7 @@ export const seedService = {
           category: mealDef.category,
           order: mealOrder,
           name: mealDef.name ?? mealDef.category,
+          youtubeUrl: mealDef.youtubeUrl ?? '',
         }
         mealOrder += 1
         docs.push({ collection: 'dietMeals', data: meal })
