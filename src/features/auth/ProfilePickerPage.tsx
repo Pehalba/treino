@@ -1,37 +1,15 @@
 import { ProfileAvatar } from '@/components/profile/ProfileAvatar'
-import { Button } from '@/components/ui/Button'
-import { Input } from '@/components/ui/Input'
 import { useSession } from '@/hooks/useSession'
-import { profileService } from '@/services/profileService'
 import { cn } from '@/utils/cn'
-import { clearBootCache } from '@/utils/localSession'
-import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 
 export function ProfilePickerPage() {
-  const { profiles, selectProfile, activeProfile, user } = useSession()
+  const { profiles, selectProfile, activeProfile } = useSession()
   const navigate = useNavigate()
-  const [joinCode, setJoinCode] = useState('')
-  const [joining, setJoining] = useState(false)
-  const [joinError, setJoinError] = useState('')
 
   function pick(profileId: string) {
     selectProfile(profileId)
     navigate('/', { replace: true })
-  }
-
-  async function join() {
-    if (!user || !joinCode.trim()) return
-    setJoining(true)
-    setJoinError('')
-    try {
-      await profileService.joinHousehold(user.id, joinCode)
-      clearBootCache()
-      window.location.reload()
-    } catch (err) {
-      setJoinError(err instanceof Error ? err.message : 'Código inválido.')
-      setJoining(false)
-    }
   }
 
   return (
@@ -71,24 +49,6 @@ export function ProfilePickerPage() {
           )
         })}
       </ul>
-
-      <div className="mt-12 w-full max-w-sm rounded-3xl bg-card p-4 sm:max-w-lg">
-        <h2 className="font-display text-lg">Já usa no celular?</h2>
-        <p className="mt-2 text-sm text-muted">
-          Celular e PC começam separados. No outro aparelho, abra Perfil e copie o código do grupo. Cole aqui para ver
-          altura, peso, dieta e treinos iguais.
-        </p>
-        <Input
-          className="mt-3"
-          placeholder="Código do grupo"
-          value={joinCode}
-          onChange={(e) => setJoinCode(e.target.value.toUpperCase())}
-        />
-        {joinError ? <p className="mt-2 text-sm text-danger">{joinError}</p> : null}
-        <Button className="mt-3 w-full" variant="secondary" disabled={joining || !joinCode.trim()} onClick={() => void join()}>
-          {joining ? 'Entrando…' : 'Usar dados do outro aparelho'}
-        </Button>
-      </div>
     </div>
   )
 }

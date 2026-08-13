@@ -20,21 +20,13 @@ export function sortProfiles(profiles: Profile[]): Profile[] {
   return [...profiles].sort((a, b) => rank(a.name) - rank(b.name) || a.name.localeCompare(b.name, 'pt-BR'))
 }
 
-export const profileService = {
-  async bootstrapUser(uid: string, email: string, displayName: string): Promise<{ user: UserRecord; profile: Profile; profiles: Profile[] }> {
-    const existing = await profileRepository.getUser(uid)
-    if (existing) {
-      const current = sortProfiles(await profileRepository.listHouseholdProfiles(existing.householdId))
-      if (current.length > 0) {
-        void this.ensureDefaultProfiles(existing)
-        return { user: existing, profile: current[0], profiles: current }
-      }
-      const profiles = await this.ensureDefaultProfiles(existing)
-      const profile = profiles[0]
-      if (!profile) throw new Error('Não foi possível carregar os perfis.')
-      return { user: existing, profile, profiles }
-    }
+function pickOldestHousehold(households: Household[]): Household | null {
+  if (households.length === 0) return null
+  return [...households].sort((a, b) => a.createdAt - b.createdAt || a.id.localeCompare(b.id))[0]
+}
 
+export const profileService = {
+  async createHousehold(uid: string): Promise<Household> {
     const household: Household = {
       id: newId(),
       name: 'Pedro & Carol',
@@ -44,19 +36,111 @@ export const profileService = {
     }
     await profileRepository.saveHousehold(household)
     await profileRepository.saveInvite(household.inviteCode, household.id)
+    return household
+  },
 
-    const user: UserRecord = {
-      id: uid,
-      email,
-      displayName: displayName || 'Pedro & Carol',
-      householdId: household.id,
-      createdAt: Date.now(),
+  async rememberCanonicalHousehold(householdId: string): Promise<void> {
+    try {
+      const current = await profileRepository.getAppConfig()
+      if (!current) {
+        await profileRepository.saveAppConfig({ id: 'main', householdId, updatedAt: Date.now() })
+        return
+      }
+      if (current.householdId !== householdId) {
+        await profileRepository.updateAppConfig({ householdId, updatedAt: Date.now() })
+      }
+    } catch {
+      /* rules ainda não publicadas — o grupo mais antigo continua a valer */
     }
-    await profileRepository.saveUser(user)
+  },
+
+  householdLooksUsed(profiles: Profile[]): boolean {
+    return profiles.some((profile) => (profile.heightCm ?? 0) > 0 || (profile.weightGoalKg ?? 0) > 0)
+  },
+
+  async resolveCanonicalHousehold(uid: string, existing: UserRecord | null): Promise<Household> {
+    if (existing) {
+      const mine = await profileRepository.getHousehold(existing.householdId)
+      const myProfiles = await profileRepository.listHouseholdProfiles(existing.householdId)
+      if (mine && this.householdLooksUsed(myProfiles)) {
+        await this.rememberCanonicalHousehold(mine.id)
+        return mine
+      }
+    }
+
+    let households: Household[] = []
+    try {
+      households = await profileRepository.listHouseholds()
+    } catch {
+      households = []
+    }
+    const oldest = pickOldestHousehold(households)
+
+    try {
+      const config = await profileRepository.getAppConfig()
+      if (config) {
+        const pointed =
+          households.find((item) => item.id === config.householdId) ??
+          (await profileRepository.getHousehold(config.householdId))
+        if (pointed) return pointed
+      }
+    } catch {
+      /* appConfig indisponível */
+    }
+
+    if (oldest) {
+      await this.rememberCanonicalHousehold(oldest.id)
+      return oldest
+    }
+
+    const created = await this.createHousehold(uid)
+    await this.rememberCanonicalHousehold(created.id)
+    return created
+  },
+
+  async ensureMembers(user: UserRecord): Promise<void> {
+    const profiles = await profileRepository.listHouseholdProfiles(user.householdId)
+    const already = await profileRepository.listMembersForUser(user.id)
+    const alreadyIds = new Set(already.map((item) => item.profileId))
+    for (const profile of profiles) {
+      if (alreadyIds.has(profile.id)) continue
+      await profileRepository.saveMember(buildProfileMember(user.id, profile.id, user.householdId, 'member'))
+    }
+  },
+
+  async attachToHousehold(user: UserRecord, household: Household): Promise<UserRecord> {
+    if (user.householdId === household.id) {
+      await this.ensureMembers(user)
+      return user
+    }
+    await profileRepository.updateUser(user.id, { householdId: household.id })
+    const updated = { ...user, householdId: household.id }
+    await this.ensureMembers(updated)
+    return updated
+  },
+
+  async bootstrapUser(uid: string, email: string, displayName: string): Promise<{ user: UserRecord; profile: Profile; profiles: Profile[] }> {
+    const existing = await profileRepository.getUser(uid)
+    const household = await this.resolveCanonicalHousehold(uid, existing)
+
+    const user = existing
+      ? await this.attachToHousehold(existing, household)
+      : await (async () => {
+          const created: UserRecord = {
+            id: uid,
+            email,
+            displayName: displayName || 'Pedro & Carol',
+            householdId: household.id,
+            createdAt: Date.now(),
+          }
+          await profileRepository.saveUser(created)
+          await this.ensureMembers(created)
+          return created
+        })()
 
     const profiles = await this.ensureDefaultProfiles(user)
     const profile = profiles[0]
-    if (!profile) throw new Error('Não foi possível criar os perfis.')
+    if (!profile) throw new Error('Não foi possível carregar os perfis.')
     return { user, profile, profiles }
   },
 
@@ -136,17 +220,12 @@ export const profileService = {
     if (!invite) throw new Error('Código inválido.')
     const household = await profileRepository.getHousehold(invite.householdId)
     if (!household) throw new Error('Grupo não encontrado.')
-    await profileRepository.updateUser(uid, { householdId: household.id })
-    const user = await profileRepository.getUser(uid)
-    if (!user) throw new Error('Não foi possível entrar no grupo.')
-    const profiles = await profileRepository.listHouseholdProfiles(household.id)
-    const already = await profileRepository.listMembersForUser(uid)
-    const alreadyIds = new Set(already.map((m) => m.profileId))
-    for (const profile of profiles) {
-      if (alreadyIds.has(profile.id)) continue
-      await profileRepository.saveMember(buildProfileMember(uid, profile.id, household.id, 'member'))
-    }
-    return { user, household, profiles: sortProfiles(profiles) }
+    const current = await profileRepository.getUser(uid)
+    if (!current) throw new Error('Não foi possível entrar no grupo.')
+    const user = await this.attachToHousehold(current, household)
+    await this.rememberCanonicalHousehold(household.id)
+    const profiles = sortProfiles(await profileRepository.listHouseholdProfiles(household.id))
+    return { user, household, profiles }
   },
 
   async updateProfile(

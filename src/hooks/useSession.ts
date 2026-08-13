@@ -14,6 +14,12 @@ import {
 } from '@/utils/localSession'
 import type { Profile, UserRecord } from '@/types'
 
+function samePerson(profile: Profile, nameOrId: string | null | undefined): boolean {
+  if (!nameOrId) return false
+  if (profile.id === nameOrId) return true
+  return profile.name.trim().toLowerCase() === nameOrId.trim().toLowerCase()
+}
+
 function applySession(user: UserRecord, profiles: Profile[]) {
   const setUser = useAppStore.getState().setUser
   const setProfiles = useAppStore.getState().setProfiles
@@ -24,7 +30,9 @@ function applySession(user: UserRecord, profiles: Profile[]) {
   const current = useAppStore.getState().activeProfile
   const active =
     (current && profiles.find((p) => p.id === current.id)) ||
+    (current && profiles.find((p) => samePerson(p, current.name))) ||
     profiles.find((p) => p.id === savedId) ||
+    profiles.find((p) => samePerson(p, 'Pedro')) ||
     null
   if (active) {
     setActiveProfile(active)

@@ -113,6 +113,12 @@ export type Household = {
   createdBy: string
 }
 
+export type AppConfig = {
+  id: string
+  householdId: string
+  updatedAt: number
+}
+
 export const PROFILE_AVATARS = ['pedro', 'carol', 'guest'] as const
 export type ProfileAvatar = (typeof PROFILE_AVATARS)[number]
 

@@ -65,6 +65,10 @@ service cloud.firestore {
       allow read, create: if signedIn();
     }
 
+    match /appConfig/{id} {
+      allow read, create, update: if signedIn();
+    }
+
     match /profileMembers/{id} {
       allow read: if signedIn() && (resource.data.userId == request.auth.uid || inHouse(resource.data.householdId));
       allow create: if signedIn() && request.resource.data.userId == request.auth.uid;

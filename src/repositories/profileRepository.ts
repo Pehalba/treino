@@ -1,6 +1,6 @@
 import { where } from 'firebase/firestore'
 import { createDoc, getById, listDocs, patchDoc, subscribeDocs } from '@/repositories/base'
-import type { Household, Profile, ProfileMember, UserRecord } from '@/types'
+import type { AppConfig, Household, Profile, ProfileMember, UserRecord } from '@/types'
 import { newId } from '@/utils/ids'
 import type { Unsubscribe } from 'firebase/firestore'
 
@@ -11,11 +11,14 @@ export const profileRepository = {
 
   getHousehold: (id: string) => getById<Household>('households', id),
   saveHousehold: (household: Household) => createDoc('households', household),
+  listHouseholds: () => listDocs<Household>('households'),
   getInvite: (code: string) => getById<{ id: string; householdId: string; code: string }>('householdInvites', code),
   saveInvite: (code: string, householdId: string) =>
     createDoc('householdInvites', { id: code, householdId, code }),
 
-  getProfile: (id: string) => getById<Profile>('profiles', id),
+  getAppConfig: () => getById<AppConfig>('appConfig', 'main'),
+  saveAppConfig: (data: AppConfig) => createDoc('appConfig', data),
+  updateAppConfig: (data: Partial<AppConfig>) => patchDoc('appConfig', 'main', data),
   saveProfile: (profile: Profile) => createDoc('profiles', profile),
   updateProfile: (id: string, data: Partial<Profile> | Record<string, unknown>) => patchDoc('profiles', id, data),
   listHouseholdProfiles: (householdId: string) =>

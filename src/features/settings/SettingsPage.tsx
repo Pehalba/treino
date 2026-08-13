@@ -12,15 +12,12 @@ import { seedService } from '@/services/seedService'
 import { weightService } from '@/services/weightService'
 import { PROFILE_GOALS, PROFILE_GOAL_LABELS, type ImportPayload, type ProfileGoal } from '@/types'
 import { parseHeightCm, parseLocaleNumber } from '@/utils/format'
-import { clearBootCache } from '@/utils/localSession'
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 
 export function SettingsPage() {
   const { user, activeProfile, patchActiveProfile } = useSession()
   const { message: toast, show } = useFeedback()
-  const [invite, setInvite] = useState('')
-  const [joinCode, setJoinCode] = useState('')
   const [newName, setNewName] = useState('')
   const [name, setName] = useState(activeProfile?.name ?? '')
   const [height, setHeight] = useState(activeProfile?.heightCm ? String(activeProfile.heightCm) : '')
@@ -39,13 +36,6 @@ export function SettingsPage() {
   const [activity, setActivity] = useState(activeProfile?.activityMultiplier ? String(activeProfile.activityMultiplier) : '1,5')
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
-
-  useEffect(() => {
-    if (!user) return
-    profileService.getHousehold(user.householdId).then((h) => {
-      if (h) setInvite(h.inviteCode)
-    })
-  }, [user?.householdId])
 
   useEffect(() => {
     if (!activeProfile) return
@@ -121,28 +111,6 @@ export function SettingsPage() {
     setMessage('Perfil criado. Troque em Quem vai treinar.')
   }
 
-  async function copyInvite() {
-    if (!invite) return
-    try {
-      await navigator.clipboard.writeText(invite)
-      show('Código copiado')
-    } catch {
-      setMessage(`Código: ${invite}`)
-    }
-  }
-
-  async function join() {
-    if (!user) return
-    setError('')
-    try {
-      await profileService.joinHousehold(user.id, joinCode)
-      clearBootCache()
-      window.location.reload()
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Código inválido.')
-    }
-  }
-
   async function importFile(file: File) {
     if (!activeProfile) return
     const text = await file.text()
@@ -173,22 +141,6 @@ export function SettingsPage() {
             Personalizar painel
           </Button>
         </Link>
-      </Card>
-
-      <Card className="mt-4">
-        <h2 className="font-display text-lg">Mesmos dados no PC e no celular</h2>
-        <p className="mt-2 text-sm text-muted">
-          Cada aparelho começa sozinho. Para o PC ver altura, peso e metas que você salvou no celular, copie o código
-          abaixo e cole em Quem vai treinar no outro aparelho.
-        </p>
-        <p className="mt-3 font-display text-2xl tracking-[0.2em]">{invite || '…'}</p>
-        <Button className="mt-3 w-full" variant="secondary" disabled={!invite} onClick={() => void copyInvite()}>
-          Copiar código
-        </Button>
-        <Input className="mt-4" placeholder="Código de outro aparelho" value={joinCode} onChange={(e) => setJoinCode(e.target.value.toUpperCase())} />
-        <Button className="mt-3 w-full" variant="secondary" onClick={() => void join()}>
-          Entrar no grupo
-        </Button>
       </Card>
 
       <Card className="mt-4">
