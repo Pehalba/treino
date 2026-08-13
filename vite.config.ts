@@ -3,12 +3,12 @@ import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import path from 'node:path'
 
-export default defineConfig({
-  base: process.env.GITHUB_PAGES === 'true' ? '/treino/' : '/',
+export default defineConfig(({ command }) => ({
+  base: command === 'build' ? '/treino/' : '/',
   plugins: [react(), tailwindcss()],
   resolve: {
     alias: {
       '@': path.resolve(import.meta.dirname, 'src'),
     },
   },
-})
+}))
