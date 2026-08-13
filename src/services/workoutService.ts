@@ -1,5 +1,6 @@
 import { workoutRepository } from '@/repositories/workoutRepository'
 import { exerciseRepository } from '@/repositories/exerciseRepository'
+import { deleteAll } from '@/repositories/base'
 import type {
   Exercise,
   ExerciseSet,
@@ -271,6 +272,24 @@ export const workoutService = {
     await workoutRepository.saveSession(updated)
     clearLocalSession(params.profileId)
     return updated
+  },
+
+  async discardSession(params: {
+    profileId: string
+    session: WorkoutSession
+    exercises: WorkoutSessionExercise[]
+    sets: ExerciseSet[]
+  }): Promise<void> {
+    const records = (await workoutRepository.listRecords(params.profileId)).filter(
+      (record) => record.sessionId === params.session.id,
+    )
+    await deleteAll([
+      ...params.sets.map((item) => ({ collection: 'exerciseSets', id: item.id })),
+      ...params.exercises.map((item) => ({ collection: 'workoutSessionExercises', id: item.id })),
+      ...records.map((item) => ({ collection: 'personalRecords', id: item.id })),
+      { collection: 'workoutSessions', id: params.session.id },
+    ])
+    clearLocalSession(params.profileId)
   },
 
   persistLocal(snapshot: LocalWorkoutSnapshot): void {

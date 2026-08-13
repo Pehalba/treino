@@ -86,6 +86,18 @@ export async function commitAll(items: Array<{ collection: string; data: { id: s
   }
 }
 
+export async function deleteAll(items: Array<{ collection: string; id: string }>): Promise<void> {
+  const db = getDb()
+  const size = 450
+  for (let i = 0; i < items.length; i += size) {
+    const batch = writeBatch(db)
+    for (const item of items.slice(i, i + size)) {
+      batch.delete(doc(db, item.collection, item.id))
+    }
+    await batch.commit()
+  }
+}
+
 export function asRecord(data: DocumentData): Record<string, unknown> {
   return data
 }

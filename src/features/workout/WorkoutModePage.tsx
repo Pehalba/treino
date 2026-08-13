@@ -1,4 +1,5 @@
 import { Button } from '@/components/ui/Button'
+import { Modal } from '@/components/ui/Modal'
 import { ErrorState } from '@/components/ui/ErrorState'
 import { Skeleton } from '@/components/ui/Skeleton'
 import {
@@ -59,6 +60,8 @@ export function WorkoutModePage() {
   const [skipOpen, setSkipOpen] = useState(false)
   const [occupiedOpen, setOccupiedOpen] = useState(false)
   const [replaceOpen, setReplaceOpen] = useState(false)
+  const [cancelOpen, setCancelOpen] = useState(false)
+  const [cancelling, setCancelling] = useState(false)
   const [progressions, setProgressions] = useState(0)
   const [records, setRecords] = useState(0)
 
@@ -279,6 +282,24 @@ export function WorkoutModePage() {
     setFinished(updated)
   }
 
+  async function discard() {
+    if (!session || !activeProfile) return
+    setCancelling(true)
+    try {
+      rest.skip()
+      await workoutService.discardSession({
+        profileId: activeProfile.id,
+        session,
+        exercises,
+        sets,
+      })
+      navigate('/')
+    } catch (err) {
+      setCancelling(false)
+      setError(err instanceof Error ? err.message : 'Não foi possível cancelar o treino.')
+    }
+  }
+
   if (loading) {
     return (
       <div className="min-h-svh bg-bg p-4">
@@ -351,6 +372,13 @@ export function WorkoutModePage() {
         <div className="text-right">
           <p className="text-xs text-muted">Tempo</p>
           <p className="font-display text-lg">{formatTimer(elapsed)}</p>
+          <button
+            type="button"
+            className="mt-2 text-sm text-danger"
+            onClick={() => setCancelOpen(true)}
+          >
+            Cancelar
+          </button>
         </div>
       </header>
 
@@ -438,6 +466,19 @@ export function WorkoutModePage() {
         alternatives={alternatives}
         onPick={(ex) => void replace(ex)}
       />
+      <Modal open={cancelOpen} onClose={() => setCancelOpen(false)} title="Cancelar treino?">
+        <p className="text-sm text-muted">
+          Se cancelar, todo o progresso deste treino será perdido. As séries já registradas não entram no histórico.
+        </p>
+        <div className="mt-5 grid grid-cols-1 gap-2">
+          <Button variant="danger" size="xl" onClick={() => void discard()} disabled={cancelling}>
+            {cancelling ? 'Cancelando…' : 'Cancelar e perder progresso'}
+          </Button>
+          <Button variant="secondary" onClick={() => setCancelOpen(false)} disabled={cancelling}>
+            Continuar treino
+          </Button>
+        </div>
+      </Modal>
     </div>
   )
 }
