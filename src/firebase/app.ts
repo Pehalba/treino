@@ -36,7 +36,13 @@ export function getFirebaseAuth(): Auth {
 
 export async function whenAuthPersistenceReady(): Promise<void> {
   getFirebaseAuth()
-  await persistenceReady
+  if (!persistenceReady) return
+  await Promise.race([
+    persistenceReady,
+    new Promise<void>((resolve) => {
+      setTimeout(resolve, 2500)
+    }),
+  ])
 }
 
 export function getDb(): Firestore {

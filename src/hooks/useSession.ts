@@ -12,6 +12,7 @@ import {
   saveBootCache,
   clearBootCache,
 } from '@/utils/localSession'
+import { withTimeout } from '@/utils/withTimeout'
 import type { Profile, UserRecord } from '@/types'
 
 function samePerson(profile: Profile, nameOrId: string | null | undefined): boolean {
@@ -52,6 +53,7 @@ export function useAuthBootstrap(): void {
   const setProfiles = useAppStore((s) => s.setProfiles)
   const setActiveProfile = useAppStore((s) => s.setActiveProfile)
   const setBootstrapping = useAppStore((s) => s.setBootstrapping)
+  const setBootError = useAppStore((s) => s.setBootError)
   const reset = useAppStore((s) => s.reset)
 
   useEffect(() => {
@@ -73,20 +75,34 @@ export function useAuthBootstrap(): void {
       console.error(error)
     }
 
+    const watchdog = window.setTimeout(() => {
+      if (cancelled) return
+      const state = useAppStore.getState()
+      if (state.user) {
+        setBootstrapping(false)
+        return
+      }
+      setBootError('Não foi possível abrir o app. Verifica a internet e tenta de novo.')
+      setBootstrapping(false)
+    }, 12000)
+
     unsubAuth = authService.subscribe(async (firebaseUser) => {
       unsubProfiles?.()
       if (!firebaseUser) {
         if (!useAppStore.getState().user) setBootstrapping(true)
         try {
-          await authService.ensureAnonymous()
+          await withTimeout(authService.ensureAnonymous(), 8000, 'entrar')
         } catch (error) {
           console.error(error)
           clearBootCache()
           reset()
+          setBootError('Não foi possível entrar. Verifica a internet e tenta de novo.')
+          setBootstrapping(false)
         }
         return
       }
       setFirebaseUser(firebaseUser)
+      setBootError(null)
       const boot = loadBootCache()
       const cacheHit = boot?.uid === firebaseUser.uid && boot.profiles.length > 0
       if (cacheHit) {
@@ -96,14 +112,19 @@ export function useAuthBootstrap(): void {
         setBootstrapping(true)
       }
       try {
-        const { user, profiles } = await profileService.bootstrapUser(
-          firebaseUser.uid,
-          firebaseUser.email ?? '',
-          firebaseUser.displayName ?? 'Pedro & Carol',
+        const { user, profiles } = await withTimeout(
+          profileService.bootstrapUser(
+            firebaseUser.uid,
+            firebaseUser.email ?? '',
+            firebaseUser.displayName ?? 'Pedro & Carol',
+          ),
+          10000,
+          'abrir perfis',
         )
         if (cancelled) return
         applySession(user, profiles)
         saveBootCache(firebaseUser.uid, user, profiles)
+        setBootError(null)
         const active = useAppStore.getState().activeProfile
         if (active) {
           const run = () => void dietService.ensurePresetDiet(active)
@@ -124,6 +145,9 @@ export function useAuthBootstrap(): void {
         })
       } catch (error) {
         console.error(error)
+        if (!useAppStore.getState().user) {
+          setBootError('Não foi possível abrir os perfis. Verifica a internet e tenta de novo.')
+        }
       } finally {
         if (!cancelled) setBootstrapping(false)
       }
@@ -131,10 +155,11 @@ export function useAuthBootstrap(): void {
 
     return () => {
       cancelled = true
+      window.clearTimeout(watchdog)
       unsubAuth?.()
       unsubProfiles?.()
     }
-  }, [reset, setActiveProfile, setBootstrapping, setFirebaseUser, setProfiles])
+  }, [reset, setActiveProfile, setBootError, setBootstrapping, setFirebaseUser, setProfiles])
 }
 
 export function useSession() {
@@ -143,6 +168,7 @@ export function useSession() {
   const profiles = useAppStore((s) => s.profiles)
   const activeProfile = useAppStore((s) => s.activeProfile)
   const bootstrapping = useAppStore((s) => s.bootstrapping)
+  const bootError = useAppStore((s) => s.bootError)
   const setActiveProfile = useAppStore((s) => s.setActiveProfile)
   const setProfiles = useAppStore((s) => s.setProfiles)
 
@@ -163,5 +189,5 @@ export function useSession() {
     if (user && firebaseUser) saveBootCache(firebaseUser.uid, user, nextProfiles)
   }
 
-  return { firebaseUser, user, profiles, activeProfile, bootstrapping, selectProfile, patchActiveProfile }
+  return { firebaseUser, user, profiles, activeProfile, bootstrapping, bootError, selectProfile, patchActiveProfile }
 }

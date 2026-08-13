@@ -1,4 +1,4 @@
-import { where } from 'firebase/firestore'
+import { limit, orderBy, where } from 'firebase/firestore'
 import { createDoc, getById, listDocs, patchDoc, subscribeDocs } from '@/repositories/base'
 import type { AppConfig, Household, Profile, ProfileMember, UserRecord } from '@/types'
 import { newId } from '@/utils/ids'
@@ -11,7 +11,10 @@ export const profileRepository = {
 
   getHousehold: (id: string) => getById<Household>('households', id),
   saveHousehold: (household: Household) => createDoc('households', household),
-  listHouseholds: () => listDocs<Household>('households'),
+  listOldestHousehold: async () => {
+    const items = await listDocs<Household>('households', orderBy('createdAt', 'asc'), limit(1))
+    return items[0] ?? null
+  },
   getInvite: (code: string) => getById<{ id: string; householdId: string; code: string }>('householdInvites', code),
   saveInvite: (code: string, householdId: string) =>
     createDoc('householdInvites', { id: code, householdId, code }),

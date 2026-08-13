@@ -2,6 +2,7 @@ import { lazy, Suspense } from 'react'
 import { Navigate, Outlet, Route, Routes } from 'react-router-dom'
 import { ProfilePickerPage } from '@/features/auth/ProfilePickerPage'
 import { HomePage } from '@/features/home/HomePage'
+import { Button } from '@/components/ui/Button'
 import { isFirebaseConfigured } from '@/firebase/config'
 import { useAuthBootstrap, useSession } from '@/hooks/useSession'
 
@@ -40,10 +41,18 @@ function MissingFirebase() {
   )
 }
 
-function BootScreen() {
+function BootScreen({ error }: { error?: string | null }) {
   return (
     <div className="flex min-h-svh flex-col items-center justify-center bg-bg px-6 text-center">
-      <h1 className="font-display text-2xl">Carregando</h1>
+      <h1 className="font-display text-2xl">{error ? 'Não abriu' : 'Carregando'}</h1>
+      {error ? (
+        <>
+          <p className="mt-3 max-w-sm text-sm text-muted">{error}</p>
+          <Button className="mt-6" onClick={() => window.location.reload()}>
+            Tentar de novo
+          </Button>
+        </>
+      ) : null}
     </div>
   )
 }
@@ -57,7 +66,8 @@ function RouteFallback() {
 }
 
 function Guard() {
-  const { firebaseUser, bootstrapping, user } = useSession()
+  const { firebaseUser, bootstrapping, user, bootError } = useSession()
+  if (bootError && !user) return <BootScreen error={bootError} />
   if (!firebaseUser) return <BootScreen />
   if (bootstrapping && !user) return <BootScreen />
   return <Outlet />

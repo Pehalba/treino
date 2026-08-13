@@ -19,12 +19,14 @@ type AppState = {
   profiles: Profile[]
   activeProfile: Profile | null
   bootstrapping: boolean
+  bootError: string | null
   minimizedWorkout: MinimizedWorkout | null
   setFirebaseUser: (user: User | null) => void
   setUser: (user: UserRecord | null) => void
   setProfiles: (profiles: Profile[]) => void
   setActiveProfile: (profile: Profile | null) => void
   setBootstrapping: (value: boolean) => void
+  setBootError: (value: string | null) => void
   setMinimizedWorkout: (workout: MinimizedWorkout | null) => void
   reset: () => void
 }
@@ -35,12 +37,14 @@ export const useAppStore = create<AppState>((set) => ({
   profiles: cachedBoot?.profiles ?? [],
   activeProfile: cachedActive,
   bootstrapping: !cachedBoot,
+  bootError: null,
   minimizedWorkout: null,
   setFirebaseUser: (firebaseUser) => set({ firebaseUser }),
   setUser: (user) => set({ user }),
   setProfiles: (profiles) => set({ profiles }),
   setActiveProfile: (activeProfile) => set({ activeProfile }),
   setBootstrapping: (bootstrapping) => set({ bootstrapping }),
+  setBootError: (bootError) => set({ bootError }),
   setMinimizedWorkout: (minimizedWorkout) => set({ minimizedWorkout }),
   reset: () =>
     set({
@@ -49,6 +53,7 @@ export const useAppStore = create<AppState>((set) => ({
       profiles: [],
       activeProfile: null,
       bootstrapping: false,
+      bootError: null,
       minimizedWorkout: null,
     }),
 }))

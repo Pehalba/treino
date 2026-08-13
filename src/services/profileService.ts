@@ -5,6 +5,7 @@ import type { Household, Profile, ProfileAvatar, UserRecord } from '@/types'
 import { auditFields } from '@/utils/audit'
 import { inviteCode, newId } from '@/utils/ids'
 import { avatarFromName } from '@/utils/profileAvatar'
+import { withTimeout } from '@/utils/withTimeout'
 
 const DEFAULT_PROFILES: Array<{ name: string; avatar: ProfileAvatar }> = [
   { name: 'Pedro', avatar: 'pedro' },
@@ -18,11 +19,6 @@ export function sortProfiles(profiles: Profile[]): Profile[] {
     return index === -1 ? DEFAULT_PROFILES.length : index
   }
   return [...profiles].sort((a, b) => rank(a.name) - rank(b.name) || a.name.localeCompare(b.name, 'pt-BR'))
-}
-
-function pickOldestHousehold(households: Household[]): Household | null {
-  if (households.length === 0) return null
-  return [...households].sort((a, b) => a.createdAt - b.createdAt || a.id.localeCompare(b.id))[0]
 }
 
 export const profileService = {
@@ -60,41 +56,44 @@ export const profileService = {
 
   async resolveCanonicalHousehold(uid: string, existing: UserRecord | null): Promise<Household> {
     if (existing) {
-      const mine = await profileRepository.getHousehold(existing.householdId)
-      const myProfiles = await profileRepository.listHouseholdProfiles(existing.householdId)
-      if (mine && this.householdLooksUsed(myProfiles)) {
-        await this.rememberCanonicalHousehold(mine.id)
-        return mine
+      try {
+        const mine = await withTimeout(profileRepository.getHousehold(existing.householdId), 4000, 'grupo atual')
+        const myProfiles = await withTimeout(
+          profileRepository.listHouseholdProfiles(existing.householdId),
+          4000,
+          'perfis atuais',
+        )
+        if (mine && this.householdLooksUsed(myProfiles)) {
+          void this.rememberCanonicalHousehold(mine.id)
+          return mine
+        }
+      } catch {
+        /* aparelho novo ou leitura lenta — tenta o grupo partilhado */
       }
     }
 
-    let households: Household[] = []
     try {
-      households = await profileRepository.listHouseholds()
-    } catch {
-      households = []
-    }
-    const oldest = pickOldestHousehold(households)
-
-    try {
-      const config = await profileRepository.getAppConfig()
-      if (config) {
-        const pointed =
-          households.find((item) => item.id === config.householdId) ??
-          (await profileRepository.getHousehold(config.householdId))
+      const config = await withTimeout(profileRepository.getAppConfig(), 3000, 'config')
+      if (config?.householdId) {
+        const pointed = await withTimeout(profileRepository.getHousehold(config.householdId), 3000, 'grupo partilhado')
         if (pointed) return pointed
       }
     } catch {
       /* appConfig indisponível */
     }
 
-    if (oldest) {
-      await this.rememberCanonicalHousehold(oldest.id)
-      return oldest
+    try {
+      const oldest = await withTimeout(profileRepository.listOldestHousehold(), 4000, 'grupo mais antigo')
+      if (oldest) {
+        void this.rememberCanonicalHousehold(oldest.id)
+        return oldest
+      }
+    } catch {
+      /* listagem lenta ou sem índice */
     }
 
     const created = await this.createHousehold(uid)
-    await this.rememberCanonicalHousehold(created.id)
+    void this.rememberCanonicalHousehold(created.id)
     return created
   },
 
@@ -110,17 +109,25 @@ export const profileService = {
 
   async attachToHousehold(user: UserRecord, household: Household): Promise<UserRecord> {
     if (user.householdId === household.id) {
-      await this.ensureMembers(user)
+      try {
+        await withTimeout(this.ensureMembers(user), 5000, 'membros')
+      } catch {
+        /* segue com os perfis */
+      }
       return user
     }
-    await profileRepository.updateUser(user.id, { householdId: household.id })
+    await withTimeout(profileRepository.updateUser(user.id, { householdId: household.id }), 5000, 'atualizar grupo')
     const updated = { ...user, householdId: household.id }
-    await this.ensureMembers(updated)
+    try {
+      await withTimeout(this.ensureMembers(updated), 5000, 'membros')
+    } catch {
+      /* segue com os perfis */
+    }
     return updated
   },
 
   async bootstrapUser(uid: string, email: string, displayName: string): Promise<{ user: UserRecord; profile: Profile; profiles: Profile[] }> {
-    const existing = await profileRepository.getUser(uid)
+    const existing = await withTimeout(profileRepository.getUser(uid), 4000, 'utilizador').catch(() => null)
     const household = await this.resolveCanonicalHousehold(uid, existing)
 
     const user = existing
@@ -133,8 +140,12 @@ export const profileService = {
             householdId: household.id,
             createdAt: Date.now(),
           }
-          await profileRepository.saveUser(created)
-          await this.ensureMembers(created)
+          await withTimeout(profileRepository.saveUser(created), 5000, 'guardar utilizador')
+          try {
+            await withTimeout(this.ensureMembers(created), 5000, 'membros')
+          } catch {
+            /* os perfis ainda abrem */
+          }
           return created
         })()
 
@@ -145,7 +156,9 @@ export const profileService = {
   },
 
   async ensureDefaultProfiles(user: UserRecord): Promise<Profile[]> {
-    const current = sortProfiles(await profileRepository.listHouseholdProfiles(user.householdId))
+    const current = sortProfiles(
+      await withTimeout(profileRepository.listHouseholdProfiles(user.householdId), 5000, 'perfis'),
+    )
     const names = new Set(current.map((item) => item.name.trim().toLowerCase()))
     const created: Profile[] = []
     for (const def of DEFAULT_PROFILES) {
