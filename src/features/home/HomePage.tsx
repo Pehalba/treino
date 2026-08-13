@@ -5,11 +5,14 @@ import { Card } from '@/components/ui/Card'
 import { EditButton } from '@/components/ui/EditButton'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { ErrorState } from '@/components/ui/ErrorState'
+import { Input } from '@/components/ui/Input'
+import { Modal } from '@/components/ui/Modal'
 import { ProgressBar } from '@/components/ui/Progress'
 import { Skeleton } from '@/components/ui/Skeleton'
 import { useSession } from '@/hooks/useSession'
 import { dashboardService } from '@/services/dashboardService'
 import { nutritionService } from '@/services/nutritionService'
+import { profileService } from '@/services/profileService'
 import { weightService } from '@/services/weightService'
 import { workoutService } from '@/services/workoutService'
 import type {
@@ -22,13 +25,86 @@ import type {
 } from '@/types'
 import { PROFILE_GOAL_LABELS } from '@/types'
 import { formatDate, formatDuration, todayKey, weekStart } from '@/utils/dates'
-import { formatGrams, formatKcal, formatKg } from '@/utils/format'
+import { formatGrams, formatKcal, formatKg, parseLocaleNumber } from '@/utils/format'
 import { loadLocalSession } from '@/utils/localSession'
-import { useEffect, useMemo, useState } from 'react'
+import { cn } from '@/utils/cn'
+import {
+  Activity,
+  CalendarCheck,
+  Drumstick,
+  Dumbbell,
+  Flame,
+  Salad,
+  Scale,
+  Target,
+  Trophy,
+  TrendingUp,
+  Weight,
+  type LucideIcon,
+} from 'lucide-react'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 
+const WIDGET_ICONS: Record<DashboardWidgetId, LucideIcon> = {
+  today_workout: Dumbbell,
+  workout_list: Dumbbell,
+  week_workouts: CalendarCheck,
+  weekly_goal: Target,
+  calories_consumed: Flame,
+  calories_remaining: Flame,
+  protein: Drumstick,
+  current_weight: Scale,
+  weekly_weight_avg: Scale,
+  bulk_progress: Weight,
+  last_records: Trophy,
+  load_progression: TrendingUp,
+  workout_streak: Activity,
+  diet_adherence: Salad,
+}
+
+function WidgetHeader({ id, label }: { id: DashboardWidgetId; label: string }) {
+  const Icon = WIDGET_ICONS[id]
+  return (
+    <div className="flex items-start justify-between gap-3">
+      <p className="text-xs font-semibold tracking-widest text-muted uppercase">{label}</p>
+      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl bg-accent/15 text-accent">
+        <Icon size={18} strokeWidth={2.2} aria-hidden />
+      </span>
+    </div>
+  )
+}
+
+function TapCard({
+  onClick,
+  hint,
+  className,
+  children,
+}: {
+  onClick?: () => void
+  hint?: string
+  className?: string
+  children: ReactNode
+}) {
+  if (!onClick) {
+    return <Card className={className}>{children}</Card>
+  }
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        'w-full rounded-3xl bg-card p-4 text-left transition active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40',
+        className,
+      )}
+    >
+      {children}
+      {hint ? <p className="mt-2 text-xs text-accent">{hint}</p> : null}
+    </button>
+  )
+}
+
 export function HomePage() {
-  const { user, activeProfile } = useSession()
+  const { user, activeProfile, patchActiveProfile } = useSession()
   const navigate = useNavigate()
   const [templates, setTemplates] = useState<TemplateWithMeta[]>([])
   const [sessions, setSessions] = useState<WorkoutSession[]>([])
@@ -42,6 +118,12 @@ export function HomePage() {
   const [error, setError] = useState('')
   const [starting, setStarting] = useState<string | null>(null)
   const [reloadToken, setReloadToken] = useState(0)
+  const [weightOpen, setWeightOpen] = useState(false)
+  const [weightValue, setWeightValue] = useState('')
+  const [weightSaving, setWeightSaving] = useState(false)
+  const [goalOpen, setGoalOpen] = useState(false)
+  const [goalValue, setGoalValue] = useState('')
+  const [goalSaving, setGoalSaving] = useState(false)
 
   useEffect(() => {
     if (!activeProfile) return
@@ -59,23 +141,25 @@ export function HomePage() {
 
     void (async () => {
       try {
-        const { templates, sessions } = await workoutService.getHomeBundle(profileId, householdId)
+        const [{ templates, sessions }, prefs] = await Promise.all([
+          workoutService.getHomeBundle(profileId, householdId),
+          dashboardService.get(profileId),
+        ])
         if (!alive) return
         setTemplates(templates)
         setSessions(sessions)
+        setWidgets(prefs)
         setLoading(false)
 
-        const [food, w, recs, prefs] = await Promise.all([
+        const [food, w, recs] = await Promise.all([
           nutritionService.listLogsSince(profileId, todayKey(weekStart())),
           weightService.list(profileId),
           workoutService.listRecords(profileId),
-          dashboardService.get(profileId),
         ])
         if (!alive) return
         setLogs(food)
         setWeights(w)
         setRecords(recs)
-        setWidgets(prefs)
       } catch (err) {
         if (!alive) return
         setError(err instanceof Error ? err.message : 'Falha ao carregar treinos.')
@@ -129,14 +213,59 @@ export function HomePage() {
     }
   }
 
+  function openWeightModal() {
+    setWeightValue(currentWeight != null ? String(currentWeight).replace('.', ',') : '')
+    setWeightOpen(true)
+  }
+
+  async function saveWeight() {
+    if (!user || !activeProfile) return
+    const weight = parseLocaleNumber(weightValue)
+    if (weight == null || weight <= 0) return
+    setWeightSaving(true)
+    try {
+      const entry = await weightService.logOrUpdateToday({ user, profile: activeProfile, weight })
+      setWeights((prev) => {
+        const withoutToday = prev.filter((item) => item.date !== entry.date)
+        return [entry, ...withoutToday].sort((a, b) => b.date.localeCompare(a.date))
+      })
+      setWeightOpen(false)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Não foi possível salvar o peso.')
+    } finally {
+      setWeightSaving(false)
+    }
+  }
+
+  function openGoalModal() {
+    setGoalValue(String(activeProfile?.weeklyWorkoutGoal ?? 4))
+    setGoalOpen(true)
+  }
+
+  async function saveWeeklyGoal() {
+    if (!user || !activeProfile) return
+    const goal = Number(goalValue)
+    if (!Number.isFinite(goal) || goal < 0) return
+    setGoalSaving(true)
+    try {
+      await profileService.updateProfile(activeProfile.id, { weeklyWorkoutGoal: goal }, user.id)
+      patchActiveProfile({ weeklyWorkoutGoal: goal })
+      setGoalOpen(false)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Não foi possível salvar a meta.')
+    } finally {
+      setGoalSaving(false)
+    }
+  }
+
   function renderWidget(id: DashboardWidgetId) {
     switch (id) {
       case 'today_workout':
         if (!active) return null
         return (
           <Card className="border border-accent/30">
-            <p className="text-xs font-semibold tracking-widest text-accent uppercase">Treino em andamento</p>
-            <h2 className="mt-1 font-display text-2xl">
+            <WidgetHeader id="today_workout" label="Treino em andamento" />
+            <h2 className="mt-2 font-display text-2xl">
               <WorkoutName name={active.templateName} />
             </h2>
             <Button className="mt-4 w-full" size="xl" onClick={() => navigate(`/treino/${active.id}`)}>
@@ -147,7 +276,12 @@ export function HomePage() {
       case 'workout_list':
         return (
           <section>
-            <h2 className="mb-3 font-display text-lg tracking-wide uppercase">Seus treinos</h2>
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <h2 className="font-display text-lg tracking-wide uppercase">Seus treinos</h2>
+              <span className="flex h-9 w-9 items-center justify-center rounded-2xl bg-accent/15 text-accent">
+                <Dumbbell size={18} strokeWidth={2.2} aria-hidden />
+              </span>
+            </div>
             {templates.length === 0 ? (
               <EmptyState title="Nenhum treino ainda" description="Cadastre ou importe treinos no perfil." />
             ) : (
@@ -186,73 +320,73 @@ export function HomePage() {
         )
       case 'week_workouts':
         return (
-          <Card>
-            <p className="text-xs font-semibold tracking-widest text-muted uppercase">Treinos da semana</p>
-            <p className="mt-1 font-display text-3xl">{weekSessions.length}</p>
+          <TapCard onClick={() => navigate('/treino')} hint="Toque para ver treinos">
+            <WidgetHeader id="week_workouts" label="Treinos da semana" />
+            <p className="mt-2 font-display text-3xl">{weekSessions.length}</p>
             <p className="text-sm text-muted">
               {weekSessions.map((s) => s.templateName).join(' · ') || 'Nenhum treino ainda nesta semana.'}
             </p>
-          </Card>
+          </TapCard>
         )
       case 'weekly_goal': {
         const goal = activeProfile?.weeklyWorkoutGoal ?? 4
         return (
-          <Card>
-            <p className="text-xs font-semibold tracking-widest text-muted uppercase">Meta semanal</p>
-            <p className="mt-1 font-display text-3xl">
+          <TapCard onClick={openGoalModal} hint="Toque para alterar a meta">
+            <WidgetHeader id="weekly_goal" label="Meta semanal" />
+            <p className="mt-2 font-display text-3xl">
               {weekSessions.length}/{goal}
             </p>
             <ProgressBar className="mt-3" value={weekSessions.length} max={goal || 1} />
-          </Card>
+          </TapCard>
         )
       }
       case 'calories_consumed':
         return (
-          <Card>
-            <p className="text-xs font-semibold tracking-widest text-muted uppercase">Calorias consumidas</p>
-            <p className="mt-1 font-display text-3xl">{formatKcal(totals.calories)}</p>
+          <TapCard onClick={() => navigate('/calorias')} hint="Toque para registrar comida">
+            <WidgetHeader id="calories_consumed" label="Calorias consumidas" />
+            <p className="mt-2 font-display text-3xl">{formatKcal(totals.calories)}</p>
             <p className="text-sm text-muted">Meta: {formatKcal(calorieGoal)}</p>
-          </Card>
+          </TapCard>
         )
       case 'calories_remaining':
         return (
-          <Card>
-            <p className="text-xs font-semibold tracking-widest text-muted uppercase">Calorias restantes</p>
-            <p className="mt-1 font-display text-3xl">{formatKcal(remaining)}</p>
-          </Card>
+          <TapCard onClick={() => navigate('/calorias')} hint="Toque para registrar comida">
+            <WidgetHeader id="calories_remaining" label="Calorias restantes" />
+            <p className="mt-2 font-display text-3xl">{formatKcal(remaining)}</p>
+          </TapCard>
         )
       case 'protein':
         return (
-          <Card>
-            <p className="text-xs font-semibold tracking-widest text-muted uppercase">Proteína</p>
-            <p className="mt-1 font-display text-3xl">{formatGrams(totals.protein)}</p>
+          <TapCard onClick={() => navigate('/calorias')} hint="Toque para registrar comida">
+            <WidgetHeader id="protein" label="Proteína" />
+            <p className="mt-2 font-display text-3xl">{formatGrams(totals.protein)}</p>
             <p className="text-sm text-muted">Meta: {formatGrams(activeProfile?.proteinGoal ?? 0)}</p>
-          </Card>
+          </TapCard>
         )
       case 'current_weight':
         return (
-          <Card>
-            <p className="text-xs font-semibold tracking-widest text-muted uppercase">Peso atual</p>
-            <p className="mt-1 font-display text-3xl">{currentWeight != null ? formatKg(currentWeight) : '—'}</p>
+          <TapCard onClick={openWeightModal} hint="Toque para atualizar o peso">
+            <WidgetHeader id="current_weight" label="Peso atual" />
+            <p className="mt-2 font-display text-3xl">{currentWeight != null ? formatKg(currentWeight) : '—'}</p>
             {weightGoal != null ? (
               <p className="text-sm text-muted">Meta: {formatKg(weightGoal)}</p>
             ) : (
               <p className="text-sm text-muted">Defina a meta em Perfil.</p>
             )}
-          </Card>
+          </TapCard>
         )
       case 'weekly_weight_avg':
         return (
-          <Card>
-            <p className="text-xs font-semibold tracking-widest text-muted uppercase">Média semanal de peso</p>
-            <p className="mt-1 font-display text-3xl">{avgWeight != null ? formatKg(avgWeight) : '—'}</p>
-          </Card>
+          <TapCard onClick={openWeightModal} hint="Toque para registrar peso">
+            <WidgetHeader id="weekly_weight_avg" label="Média semanal de peso" />
+            <p className="mt-2 font-display text-3xl">{avgWeight != null ? formatKg(avgWeight) : '—'}</p>
+          </TapCard>
         )
       case 'bulk_progress':
         return (
-          <Card>
-            <p className="text-xs font-semibold tracking-widest text-muted uppercase">Progresso do peso</p>
-            <p className="mt-1 font-display text-3xl">
+          <TapCard onClick={openWeightModal} hint="Toque para registrar peso">
+            <WidgetHeader id="bulk_progress" label="Progresso do peso" />
+            <p className="mt-2 font-display text-3xl">
               {remainingWeight == null
                 ? bulkDelta == null
                   ? '—'
@@ -275,12 +409,12 @@ export function HomePage() {
             {weightProgressValue != null && weightProgressMax != null ? (
               <ProgressBar className="mt-3" value={weightProgressValue} max={weightProgressMax} />
             ) : null}
-          </Card>
+          </TapCard>
         )
       case 'last_records':
         return (
-          <Card>
-            <p className="text-xs font-semibold tracking-widest text-muted uppercase">Últimos recordes</p>
+          <TapCard onClick={() => navigate('/relatorios')} hint="Toque para ver relatórios">
+            <WidgetHeader id="last_records" label="Últimos recordes" />
             {lastRecords.length === 0 ? (
               <p className="mt-2 text-sm text-muted">Nenhum recorde ainda.</p>
             ) : (
@@ -292,13 +426,13 @@ export function HomePage() {
                 ))}
               </ul>
             )}
-          </Card>
+          </TapCard>
         )
       case 'load_progression':
         return (
-          <Card>
-            <p className="text-xs font-semibold tracking-widest text-muted uppercase">Progressão de carga</p>
-            <p className="mt-1 font-display text-2xl">
+          <TapCard onClick={() => navigate('/relatorios')} hint="Toque para ver relatórios">
+            <WidgetHeader id="load_progression" label="Progressão de carga" />
+            <p className="mt-2 font-display text-2xl">
               {lastVolume != null ? Math.round(lastVolume) : '—'}
               <span className="text-base text-muted"> kg volume</span>
             </p>
@@ -307,22 +441,22 @@ export function HomePage() {
                 ? `Anterior: ${Math.round(prevVolume)} kg`
                 : 'Faça mais um treino para comparar.'}
             </p>
-          </Card>
+          </TapCard>
         )
       case 'workout_streak':
         return (
-          <Card>
-            <p className="text-xs font-semibold tracking-widest text-muted uppercase">Sequência de treinos</p>
-            <p className="mt-1 font-display text-3xl">{streak} dias</p>
-          </Card>
+          <TapCard onClick={() => navigate('/treino')} hint="Toque para ver treinos">
+            <WidgetHeader id="workout_streak" label="Sequência de treinos" />
+            <p className="mt-2 font-display text-3xl">{streak} dias</p>
+          </TapCard>
         )
       case 'diet_adherence':
         return (
-          <Card>
-            <p className="text-xs font-semibold tracking-widest text-muted uppercase">Aderência à dieta</p>
-            <p className="mt-1 font-display text-3xl">{dietDays}</p>
+          <TapCard onClick={() => navigate('/dietas')} hint="Toque para ver dietas">
+            <WidgetHeader id="diet_adherence" label="Aderência à dieta" />
+            <p className="mt-2 font-display text-3xl">{dietDays}</p>
             <p className="text-sm text-muted">dias desta semana com registro de comida</p>
-          </Card>
+          </TapCard>
         )
       default:
         return null
@@ -360,6 +494,32 @@ export function HomePage() {
             ))}
         </div>
       )}
+
+      <Modal open={weightOpen} onClose={() => setWeightOpen(false)} title="Atualizar peso">
+        <p className="mb-3 text-sm text-muted">Registra ou atualiza o peso de hoje.</p>
+        <Input
+          placeholder="80,5"
+          inputMode="decimal"
+          value={weightValue}
+          onChange={(e) => setWeightValue(e.target.value)}
+        />
+        <Button className="mt-4 w-full" disabled={weightSaving} onClick={() => void saveWeight()}>
+          {weightSaving ? 'Salvando…' : 'Salvar peso'}
+        </Button>
+      </Modal>
+
+      <Modal open={goalOpen} onClose={() => setGoalOpen(false)} title="Meta semanal de treinos">
+        <Input
+          type="number"
+          min={0}
+          inputMode="numeric"
+          value={goalValue}
+          onChange={(e) => setGoalValue(e.target.value)}
+        />
+        <Button className="mt-4 w-full" disabled={goalSaving} onClick={() => void saveWeeklyGoal()}>
+          {goalSaving ? 'Salvando…' : 'Salvar meta'}
+        </Button>
+      </Modal>
     </AppShell>
   )
 }

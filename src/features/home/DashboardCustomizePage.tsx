@@ -37,9 +37,15 @@ export function DashboardCustomizePage() {
   async function save() {
     if (!user || !activeProfile) return
     setSaving(true)
-    await dashboardService.save({ user, profile: activeProfile, widgets })
-    setSaving(false)
-    show()
+    try {
+      await dashboardService.save({ user, profile: activeProfile, widgets })
+      show()
+      navigate('/', { replace: true })
+    } catch (err) {
+      show(err instanceof Error ? err.message : 'Não foi possível salvar o painel.')
+    } finally {
+      setSaving(false)
+    }
   }
 
   return (

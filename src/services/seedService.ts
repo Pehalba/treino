@@ -44,7 +44,7 @@ export const seedService = {
         equipment: item.equipment,
         description: item.description,
         youtubeUrl: item.youtubeUrl,
-        imageUrl: exerciseImageByKey(item.key),
+        imageUrl: exerciseImageByKey(item.key) ?? '',
         alternativeIds: [],
         defaultSets: item.defaultSets,
         defaultRepMin: item.defaultRepMin,

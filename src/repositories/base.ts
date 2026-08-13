@@ -16,11 +16,19 @@ import {
 } from 'firebase/firestore'
 import { getDb } from '@/firebase/app'
 
+function withoutUndefined<T extends Record<string, unknown>>(data: T): T {
+  const next = { ...data }
+  for (const key of Object.keys(next)) {
+    if (next[key] === undefined) delete next[key]
+  }
+  return next
+}
+
 export async function createDoc<T extends { id: string }>(
   collectionName: string,
   data: T,
 ): Promise<T> {
-  await setDoc(doc(getDb(), collectionName, data.id), data)
+  await setDoc(doc(getDb(), collectionName, data.id), withoutUndefined(data as Record<string, unknown>))
   return data
 }
 
@@ -28,7 +36,9 @@ export async function upsertDoc<T extends { id: string }>(
   collectionName: string,
   data: T,
 ): Promise<T> {
-  await setDoc(doc(getDb(), collectionName, data.id), data, { merge: true })
+  await setDoc(doc(getDb(), collectionName, data.id), withoutUndefined(data as Record<string, unknown>), {
+    merge: true,
+  })
   return data
 }
 
@@ -81,7 +91,7 @@ export async function commitAll(items: Array<{ collection: string; data: { id: s
   for (let i = 0; i < items.length; i += size) {
     const batch = writeBatch(db)
     for (const item of items.slice(i, i + size)) {
-      batch.set(doc(db, item.collection, item.data.id), item.data)
+      batch.set(doc(db, item.collection, item.data.id), withoutUndefined(item.data as Record<string, unknown>))
     }
     await batch.commit()
   }

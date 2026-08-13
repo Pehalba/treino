@@ -370,7 +370,7 @@ export function WorkoutModePage() {
               muscleGroup: ex.muscleGroup,
               equipment: ex.equipment,
                 youtubeUrl: ex.youtubeUrl,
-                imageUrl: ex.imageUrl,
+                imageUrl: ex.imageUrl ?? '',
               weightIncrement: ex.weightIncrement,
               substituted: true,
               substituteOnlyToday: true,
