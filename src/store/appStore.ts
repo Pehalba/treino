@@ -2,17 +2,24 @@ import { create } from 'zustand'
 import type { Profile, UserRecord } from '@/types'
 import type { User } from 'firebase/auth'
 
+export type MinimizedWorkout = {
+  id: string
+  name: string
+}
+
 type AppState = {
   firebaseUser: User | null
   user: UserRecord | null
   profiles: Profile[]
   activeProfile: Profile | null
   bootstrapping: boolean
+  minimizedWorkout: MinimizedWorkout | null
   setFirebaseUser: (user: User | null) => void
   setUser: (user: UserRecord | null) => void
   setProfiles: (profiles: Profile[]) => void
   setActiveProfile: (profile: Profile | null) => void
   setBootstrapping: (value: boolean) => void
+  setMinimizedWorkout: (workout: MinimizedWorkout | null) => void
   reset: () => void
 }
 
@@ -22,11 +29,13 @@ export const useAppStore = create<AppState>((set) => ({
   profiles: [],
   activeProfile: null,
   bootstrapping: true,
+  minimizedWorkout: null,
   setFirebaseUser: (firebaseUser) => set({ firebaseUser }),
   setUser: (user) => set({ user }),
   setProfiles: (profiles) => set({ profiles }),
   setActiveProfile: (activeProfile) => set({ activeProfile }),
   setBootstrapping: (bootstrapping) => set({ bootstrapping }),
+  setMinimizedWorkout: (minimizedWorkout) => set({ minimizedWorkout }),
   reset: () =>
     set({
       firebaseUser: null,
@@ -34,5 +43,6 @@ export const useAppStore = create<AppState>((set) => ({
       profiles: [],
       activeProfile: null,
       bootstrapping: false,
+      minimizedWorkout: null,
     }),
 }))

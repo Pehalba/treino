@@ -84,7 +84,7 @@ export function HomePage() {
           <p className="text-xs font-semibold tracking-widest text-muted uppercase">Treino recomendado hoje</p>
           <h2 className="mt-1 font-display text-2xl">{recommended.name}</h2>
           <p className="text-sm text-muted">{recommended.exercises.length} exercícios · sugestão, não obrigação</p>
-          <Button className="mt-4 w-full" size="xl" onClick={() => start(recommended)} disabled={starting === recommended.id}>
+          <Button className="mt-4 w-full" size="xl" onClick={() => start(recommended)} disabled={Boolean(starting) || Boolean(active)}>
             Iniciar {recommended.name}
           </Button>
         </Card>
@@ -126,7 +126,7 @@ export function HomePage() {
                 className="mt-4 w-full"
                 size="xl"
                 onClick={() => start(template)}
-                disabled={Boolean(starting)}
+                disabled={Boolean(starting) || Boolean(active)}
               >
                 {starting === template.id ? 'Iniciando…' : 'Iniciar'}
               </Button>

@@ -32,7 +32,9 @@ import { hapticSuccess, hapticRecord } from '@/utils/haptics'
 import { loadLocalSession } from '@/utils/localSession'
 import { pickNextExercise, withMuscle } from '@/utils/muscleOrder'
 import { workingWeight } from '@/utils/volume'
+import { useAppStore } from '@/store/appStore'
 import { AnimatePresence, motion } from 'framer-motion'
+import { Minimize2, X } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 
@@ -62,6 +64,7 @@ export function WorkoutModePage() {
   const [replaceOpen, setReplaceOpen] = useState(false)
   const [cancelOpen, setCancelOpen] = useState(false)
   const [cancelling, setCancelling] = useState(false)
+  const setMinimizedWorkout = useAppStore((s) => s.setMinimizedWorkout)
   const [progressions, setProgressions] = useState(0)
   const [records, setRecords] = useState(0)
 
@@ -280,6 +283,14 @@ export function WorkoutModePage() {
       sets,
     })
     setFinished(updated)
+    setMinimizedWorkout(null)
+  }
+
+  function minimize() {
+    if (!session) return
+    rest.skip()
+    setMinimizedWorkout({ id: session.id, name: session.templateName })
+    navigate('/')
   }
 
   async function discard() {
@@ -293,6 +304,7 @@ export function WorkoutModePage() {
         exercises,
         sets,
       })
+      setMinimizedWorkout(null)
       navigate('/')
     } catch (err) {
       setCancelling(false)
@@ -369,16 +381,29 @@ export function WorkoutModePage() {
             ))}
           </div>
         </div>
-        <div className="text-right">
-          <p className="text-xs text-muted">Tempo</p>
-          <p className="font-display text-lg">{formatTimer(elapsed)}</p>
-          <button
-            type="button"
-            className="mt-2 text-sm text-danger"
-            onClick={() => setCancelOpen(true)}
-          >
-            Cancelar
-          </button>
+        <div className="flex flex-col items-end gap-2">
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              className="flex h-11 items-center gap-1 rounded-2xl bg-card2 px-3 text-sm font-semibold"
+              onClick={minimize}
+            >
+              <Minimize2 size={16} />
+              Minimizar
+            </button>
+            <button
+              type="button"
+              className="flex h-11 w-11 items-center justify-center rounded-2xl bg-card2 text-danger"
+              aria-label="Cancelar treino"
+              onClick={() => setCancelOpen(true)}
+            >
+              <X size={20} />
+            </button>
+          </div>
+          <div className="text-right">
+            <p className="text-xs text-muted">Tempo</p>
+            <p className="font-display text-lg">{formatTimer(elapsed)}</p>
+          </div>
         </div>
       </header>
 
