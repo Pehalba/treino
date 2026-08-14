@@ -41,7 +41,7 @@ import { workingWeight } from '@/utils/volume'
 import { useAppStore } from '@/store/appStore'
 import { AnimatePresence, motion } from 'framer-motion'
 import { Minimize2, X } from 'lucide-react'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 
 export function WorkoutModePage() {
@@ -70,8 +70,11 @@ export function WorkoutModePage() {
   const [replaceOpen, setReplaceOpen] = useState(false)
   const [cancelOpen, setCancelOpen] = useState(false)
   const [cancelling, setCancelling] = useState(false)
+  const leavingRef = useRef(false)
   const [finishAsLastOpen, setFinishAsLastOpen] = useState(false)
   const [finishingAsLast, setFinishingAsLast] = useState(false)
+  const [finishExerciseOpen, setFinishExerciseOpen] = useState(false)
+  const [finishingExercise, setFinishingExercise] = useState(false)
   const [timerOpen, setTimerOpen] = useState(false)
   const [timerMinutes, setTimerMinutes] = useState(2)
   const setMinimizedWorkout = useAppStore((s) => s.setMinimizedWorkout)
@@ -117,20 +120,35 @@ export function WorkoutModePage() {
       setLoading(true)
       setError('')
       try {
-        const bundle = await workoutService.loadSessionBundle(id)
         const local = loadLocalSession(profile.id)
-        const exercisesData = bundle?.exercises ?? local?.exercises ?? []
-        const sessionData = bundle?.session ?? (local && local.session.id === id ? local.session : null)
-        const setsData = bundle?.sets?.length ? bundle.sets : (local?.sets ?? [])
+        const localMatch = local && local.session.id === id ? local : null
+
+        // Mostra na hora o que já está no aparelho (evita tela de loading depois de iniciar).
+        if (localMatch) {
+          setSession(localMatch.session)
+          setExercises(localMatch.exercises)
+          setSets(localMatch.sets)
+          const active =
+            localMatch.exercises.find((e) => e.status === 'active') ??
+            localMatch.exercises.find((e) => e.status === 'deferred' || e.status === 'pending') ??
+            localMatch.exercises[0]
+          setCurrentId(active?.id ?? localMatch.currentExerciseId)
+          setLoading(false)
+        }
+
+        const bundle = await workoutService.loadSessionBundle(id)
         if (!alive) return
+        const exercisesData = bundle?.exercises?.length
+          ? bundle.exercises
+          : (localMatch?.exercises ?? [])
+        const sessionData =
+          bundle?.session ?? (localMatch?.session ?? null)
+        const setsData = bundle?.sets?.length ? bundle.sets : (localMatch?.sets ?? [])
         if (!sessionData) {
           setError('Treino não encontrado.')
           setLoading(false)
           return
         }
-        const list = await exerciseService.listByHousehold(profile.householdId)
-        if (!alive) return
-        setCatalog(list)
         setSession(sessionData)
         setExercises(exercisesData)
         setSets(setsData)
@@ -139,8 +157,19 @@ export function WorkoutModePage() {
           exercisesData.find((e) => e.status === 'deferred' || e.status === 'pending') ??
           exercisesData[0]
         setCurrentId(active?.id ?? null)
-        unsubEx = workoutService.subscribeSessionExercises(id, (items) => setExercises(items))
-        unsubSets = workoutService.subscribeSetsBySession(id, (items) => setSets(items))
+        unsubEx = workoutService.subscribeSessionExercises(id, (items) => {
+          if (leavingRef.current) return
+          // Evita limpar a UI se o snapshot local chegou antes da gravação no Firestore.
+          if (items.length > 0) setExercises(items)
+        })
+        unsubSets = workoutService.subscribeSetsBySession(id, (items) => {
+          if (!leavingRef.current) setSets(items)
+        })
+
+        // Catálogo só para substitutos/foto — não bloqueia a abertura.
+        void exerciseService.listByHousehold(profile.householdId).then((list) => {
+          if (alive) setCatalog(list)
+        })
       } catch (err) {
         if (alive) setError(err instanceof Error ? err.message : 'Falha ao abrir o treino.')
       } finally {
@@ -198,7 +227,7 @@ export function WorkoutModePage() {
   }, [current?.id, current?.exerciseId, activeProfile?.id, session?.id])
 
   useEffect(() => {
-    if (!session || !activeProfile) return
+    if (!session || !activeProfile || leavingRef.current) return
     workoutService.persistLocal({
       session,
       exercises,
@@ -386,6 +415,7 @@ export function WorkoutModePage() {
 
   async function finish() {
     if (!session || !activeProfile) return
+    leavingRef.current = true
     const updated = await workoutService.finishSession({
       profileId: activeProfile.id,
       session,
@@ -399,6 +429,7 @@ export function WorkoutModePage() {
   async function finishAsLastTime() {
     if (!user || !session || !activeProfile) return
     setFinishingAsLast(true)
+    leavingRef.current = true
     try {
       rest.skip()
       const result = await workoutService.completeSessionAsLastTime({
@@ -415,8 +446,41 @@ export function WorkoutModePage() {
       setMinimizedWorkout(null)
       setFinishAsLastOpen(false)
     } catch (err) {
+      leavingRef.current = false
       setError(err instanceof Error ? err.message : 'Não foi possível concluir o treino.')
       setFinishingAsLast(false)
+    }
+  }
+
+  async function finishExerciseAsLastTime() {
+    if (!user || !session || !activeProfile || !current) return
+    setFinishingExercise(true)
+    try {
+      rest.skip()
+      const result = await workoutService.completeExerciseAsLastTime({
+        user,
+        profile: activeProfile,
+        session,
+        exercise: current,
+        sets,
+      })
+      const nextExercises = exercises.map((e) => (e.id === current.id ? result.exercise : e))
+      setExercises(nextExercises)
+      setSets(result.sets)
+      persistSnapshot(nextExercises, result.sets)
+      setDoneSummary({
+        kind: 'none',
+        message: 'Concluído com cargas da última vez.',
+        targetHit: false,
+        isRecord: false,
+        recordTypes: [],
+      })
+      setFinishExerciseOpen(false)
+      setFinishingExercise(false)
+      hapticSuccess()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Não foi possível concluir o exercício.')
+      setFinishingExercise(false)
     }
   }
 
@@ -430,6 +494,7 @@ export function WorkoutModePage() {
   async function discard() {
     if (!session || !activeProfile) return
     setCancelling(true)
+    leavingRef.current = true
     try {
       rest.skip()
       await workoutService.discardSession({
@@ -439,14 +504,19 @@ export function WorkoutModePage() {
         sets,
       })
       setMinimizedWorkout(null)
-      navigate('/')
+      setCancelOpen(false)
+      setSession(null)
+      setExercises([])
+      setSets([])
+      navigate('/', { replace: true })
     } catch (err) {
+      leavingRef.current = false
       setCancelling(false)
       setError(err instanceof Error ? err.message : 'Não foi possível cancelar o treino.')
     }
   }
 
-  if (loading) {
+  if (loading || cancelling) {
     return (
       <div className="min-h-svh bg-bg p-4">
         <Skeleton className="h-10 w-40" />
@@ -482,9 +552,13 @@ export function WorkoutModePage() {
   }
 
   if (!current) {
+    // Sessão sem exercício ativo (ex.: cancelamento) — volta pra home em vez de erro falso.
     return (
       <div className="min-h-svh bg-bg p-4">
-        <ErrorState message="Não foi possível abrir o exercício atual." onRetry={() => navigate('/')} />
+        <ErrorState
+          message="Este treino não tem exercício em andamento."
+          onRetry={() => navigate('/', { replace: true })}
+        />
       </div>
     )
   }
@@ -630,9 +704,16 @@ export function WorkoutModePage() {
         </motion.div>
       </AnimatePresence>
 
-      <Button className="mt-8 w-full" variant="ghost" onClick={() => setFinishAsLastOpen(true)}>
-        Concluir treino sem dados
-      </Button>
+      {!doneSummary ? (
+        <div className="mt-8 grid grid-cols-1 gap-2 sm:grid-cols-2">
+          <Button variant="ghost" onClick={() => setFinishExerciseOpen(true)}>
+            Finalizar exercício
+          </Button>
+          <Button variant="ghost" onClick={() => setFinishAsLastOpen(true)}>
+            Finalizar todo o treino
+          </Button>
+        </div>
+      ) : null}
 
       <VideoModal url={youtubeUrl} open={videoOpen} onClose={() => setVideoOpen(false)} />
       <ImageModal
@@ -679,14 +760,41 @@ export function WorkoutModePage() {
         </div>
       </Modal>
       <Modal
-        open={finishAsLastOpen}
-        onClose={() => !finishingAsLast && setFinishAsLastOpen(false)}
-        title="Concluir sem registrar?"
+        open={finishExerciseOpen}
+        onClose={() => !finishingExercise && setFinishExerciseOpen(false)}
+        title="Finalizar exercício?"
       >
         <p className="text-sm text-muted">
-          O treino será marcado como feito usando as mesmas cargas da última vez em cada exercício
-          (ex.: leg press 40 kg continua 40 kg). Nada novo de progressão ou recorde. Ideal quando você
-          treinou mas esqueceu de anotar.
+          Este exercício será marcado como feito com as mesmas cargas da última vez. A próxima vez
+          continua com esses pesos. Sem progressão nem recorde novos.
+        </p>
+        <div className="mt-5 grid grid-cols-1 gap-2">
+          <Button
+            variant="primary"
+            size="xl"
+            onClick={() => void finishExerciseAsLastTime()}
+            disabled={finishingExercise}
+          >
+            {finishingExercise ? 'Finalizando…' : 'Finalizar com cargas da última vez'}
+          </Button>
+          <Button
+            variant="secondary"
+            onClick={() => setFinishExerciseOpen(false)}
+            disabled={finishingExercise}
+          >
+            Voltar
+          </Button>
+        </div>
+      </Modal>
+      <Modal
+        open={finishAsLastOpen}
+        onClose={() => !finishingAsLast && setFinishAsLastOpen(false)}
+        title="Finalizar todo o treino?"
+      >
+        <p className="text-sm text-muted">
+          O treino inteiro será marcado como feito usando as mesmas cargas da última vez em cada
+          exercício. Nada novo de progressão ou recorde. Ideal quando você treinou mas esqueceu de
+          anotar.
         </p>
         <div className="mt-5 grid grid-cols-1 gap-2">
           <Button
@@ -695,7 +803,7 @@ export function WorkoutModePage() {
             onClick={() => void finishAsLastTime()}
             disabled={finishingAsLast}
           >
-            {finishingAsLast ? 'Concluindo…' : 'Concluir com cargas da última vez'}
+            {finishingAsLast ? 'Concluindo…' : 'Finalizar com cargas da última vez'}
           </Button>
           <Button
             variant="secondary"

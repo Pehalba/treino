@@ -1,4 +1,4 @@
-import { limit, where } from 'firebase/firestore'
+import { limit, orderBy, where } from 'firebase/firestore'
 import { createDoc, getById, listDocs, patchDoc, subscribeDocs, upsertDoc } from '@/repositories/base'
 import type {
   ExerciseSet,
@@ -38,6 +38,8 @@ export const workoutRepository = {
     ),
   listTemplateExercisesByProfile: (profileId: string) =>
     listDocs<WorkoutTemplateExercise>('workoutTemplateExercises', where('profileId', '==', profileId)),
+  listTemplateExercisesByExercise: (exerciseId: string) =>
+    listDocs<WorkoutTemplateExercise>('workoutTemplateExercises', where('exerciseId', '==', exerciseId)),
   saveTemplateExercise: (item: WorkoutTemplateExercise) => createDoc('workoutTemplateExercises', item),
   updateTemplateExercise: (id: string, data: Partial<WorkoutTemplateExercise> | Record<string, unknown>) =>
     patchDoc('workoutTemplateExercises', id, data),
@@ -97,12 +99,13 @@ export const workoutRepository = {
   ): Unsubscribe =>
     subscribeDocs<ExerciseSet>('exerciseSets', [where('workoutSessionId', '==', workoutSessionId)], onData, onError),
   listSetsByExercise: async (profileId: string, exerciseId: string) =>
-    (
-      await listDocs<ExerciseSet>('exerciseSets', where('profileId', '==', profileId))
-    )
-      .filter((item) => item.exerciseId === exerciseId)
-      .sort((a, b) => b.createdAt - a.createdAt)
-      .slice(0, 40),
+    listDocs<ExerciseSet>(
+      'exerciseSets',
+      where('profileId', '==', profileId),
+      where('exerciseId', '==', exerciseId),
+      orderBy('createdAt', 'desc'),
+      limit(40),
+    ),
   listSetsByProfile: async (profileId: string, max = 2000) =>
     (await listDocs<ExerciseSet>('exerciseSets', where('profileId', '==', profileId), limit(max))).sort(
       (a, b) => b.createdAt - a.createdAt,

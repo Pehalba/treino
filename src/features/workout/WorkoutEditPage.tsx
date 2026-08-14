@@ -11,6 +11,7 @@ import { Toast } from '@/components/ui/Toast'
 import { useFeedback } from '@/hooks/useFeedback'
 import { useSession } from '@/hooks/useSession'
 import { exerciseService } from '@/services/exerciseService'
+import { seedService } from '@/services/seedService'
 import { workoutEditorService } from '@/services/workoutEditorService'
 import { workoutService } from '@/services/workoutService'
 import {
@@ -53,6 +54,7 @@ export function WorkoutEditPage() {
     setLoading(true)
     setError('')
     try {
+      void seedService.repairPlaceholderNames(activeProfile.householdId)
       const [templates, exercises] = await Promise.all([
         workoutService.getTemplatesWithMeta(activeProfile.id, activeProfile.householdId),
         exerciseService.listByHousehold(activeProfile.householdId),
@@ -102,16 +104,34 @@ export function WorkoutEditPage() {
     }
   }
 
-  async function saveExercise(exercise: Exercise, data: Partial<Exercise>) {
-    if (!user || !template) return
+  async function saveExercise(
+    row: TemplateWithMeta['exercises'][number],
+    exercise: Exercise,
+    data: Partial<Exercise>,
+  ) {
+    if (!user || !activeProfile || !template) return
     try {
-      await workoutEditorService.updateExercise(exercise.id, data, user.id)
-      const next = { ...exercise, ...data }
-      setCatalog((items) => items.map((item) => (item.id === exercise.id ? next : item)))
+      const result = await workoutEditorService.updateExerciseInTemplate({
+        profileId: activeProfile.id,
+        householdId: activeProfile.householdId,
+        templateExerciseId: row.id,
+        exercise,
+        data,
+        userId: user.id,
+      })
+      const next = result.exercise
+      setCatalog((items) => {
+        if (result.exerciseIdChanged) return [...items.filter((item) => item.id !== next.id), next]
+        return items.map((item) => (item.id === exercise.id ? next : item))
+      })
       setTemplate({
         ...template,
-        exercises: template.exercises.map((row) =>
-          row.exerciseId === exercise.id ? { ...row, exercise: next } : row,
+        exercises: template.exercises.map((item) =>
+          item.id === row.id
+            ? { ...item, exerciseId: next.id, exercise: next }
+            : item.exerciseId === exercise.id && !result.exerciseIdChanged
+              ? { ...item, exercise: next }
+              : item,
         ),
       })
       show()
@@ -177,11 +197,15 @@ export function WorkoutEditPage() {
     show()
   }
 
-  async function toggleAlts(exercise: Exercise, altId: string) {
+  async function toggleAlts(
+    row: TemplateWithMeta['exercises'][number],
+    exercise: Exercise,
+    altId: string,
+  ) {
     const next = exercise.alternativeIds.includes(altId)
       ? exercise.alternativeIds.filter((id) => id !== altId)
       : [...exercise.alternativeIds, altId]
-    await saveExercise(exercise, { alternativeIds: next })
+    await saveExercise(row, exercise, { alternativeIds: next })
   }
 
   return (
@@ -196,7 +220,10 @@ export function WorkoutEditPage() {
         <p className="text-sm text-muted">{error || 'Treino não encontrado.'}</p>
       ) : (
         <>
-          <p className="mb-4 text-sm text-muted">{HISTORY_WARNING}</p>
+          <p className="mb-4 text-sm text-muted">
+            {HISTORY_WARNING} Alterações no nome/vídeo deste treino não mudam os treinos dos outros
+            perfis.
+          </p>
           <Card>
             <label className="text-sm text-muted">
               Nome do treino
@@ -246,7 +273,7 @@ export function WorkoutEditPage() {
                           className="mt-1"
                           defaultValue={exercise.name}
                           onBlur={(e) => {
-                            if (e.target.value.trim() !== exercise.name) void saveExercise(exercise, { name: e.target.value })
+                            if (e.target.value.trim() !== exercise.name) void saveExercise(row, exercise, { name: e.target.value })
                           }}
                         />
                       </label>
@@ -256,7 +283,7 @@ export function WorkoutEditPage() {
                           <Select
                             className="mt-1"
                             value={exercise.muscleGroup}
-                            onChange={(e) => void saveExercise(exercise, { muscleGroup: e.target.value as Exercise['muscleGroup'] })}
+                            onChange={(e) => void saveExercise(row, exercise, { muscleGroup: e.target.value as Exercise['muscleGroup'] })}
                           >
                             {MUSCLE_GROUPS.map((group) => (
                               <option key={group} value={group}>
@@ -270,7 +297,7 @@ export function WorkoutEditPage() {
                           <Select
                             className="mt-1"
                             value={exercise.equipment}
-                            onChange={(e) => void saveExercise(exercise, { equipment: e.target.value as Exercise['equipment'] })}
+                            onChange={(e) => void saveExercise(row, exercise, { equipment: e.target.value as Exercise['equipment'] })}
                           >
                             {EQUIPMENT.map((item) => (
                               <option key={item} value={item}>
@@ -325,7 +352,7 @@ export function WorkoutEditPage() {
                           defaultValue={exercise.youtubeUrl}
                           onBlur={(e) => {
                             if (e.target.value.trim() !== exercise.youtubeUrl) {
-                              void saveExercise(exercise, { youtubeUrl: e.target.value.trim() })
+                              void saveExercise(row, exercise, { youtubeUrl: e.target.value.trim() })
                             }
                           }}
                         />
@@ -339,7 +366,7 @@ export function WorkoutEditPage() {
                           onBlur={(e) => {
                             const next = e.target.value.trim()
                             if (next !== (exercise.imageUrl ?? '')) {
-                              void saveExercise(exercise, { imageUrl: next })
+                              void saveExercise(row, exercise, { imageUrl: next })
                             }
                           }}
                         />
@@ -364,7 +391,7 @@ export function WorkoutEditPage() {
                               <button
                                 key={item.id}
                                 type="button"
-                                onClick={() => void toggleAlts(exercise, item.id)}
+                                onClick={() => void toggleAlts(row, exercise, item.id)}
                                 className={
                                   exercise.alternativeIds.includes(item.id)
                                     ? 'rounded-full bg-accent px-3 py-1 text-xs font-semibold text-[#08090B]'

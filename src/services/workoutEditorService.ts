@@ -199,6 +199,68 @@ export const workoutEditorService = {
     await exerciseRepository.update(exerciseId, { ...data, ...auditFields(userId) })
   },
 
+  /**
+   * Edita o exercício a partir do treino de um perfil.
+   * Se outro perfil também usa o mesmo exercício do catálogo, clona para não afetar os outros.
+   */
+  async updateExerciseInTemplate(params: {
+    profileId: string
+    householdId: string
+    templateExerciseId: string
+    exercise: Exercise
+    data: Partial<
+      Pick<
+        Exercise,
+        | 'name'
+        | 'muscleGroup'
+        | 'equipment'
+        | 'description'
+        | 'youtubeUrl'
+        | 'imageUrl'
+        | 'alternativeIds'
+        | 'defaultSets'
+        | 'defaultRepMin'
+        | 'defaultRepMax'
+        | 'defaultRestSeconds'
+        | 'weightIncrement'
+      >
+    >
+    userId: string
+  }): Promise<{ exercise: Exercise; exerciseIdChanged: boolean }> {
+    const data = { ...params.data }
+    if (data.name != null) data.name = requireName(data.name, 'Nome do exercício')
+    if (data.defaultSets != null) requirePositive(data.defaultSets, 'Séries')
+
+    const usageRows = await workoutRepository.listTemplateExercisesByExercise(params.exercise.id)
+    const sharedWithOtherProfile = usageRows.some(
+      (row) => isLive(row) && row.profileId !== params.profileId,
+    )
+
+    if (!sharedWithOtherProfile) {
+      await exerciseRepository.update(params.exercise.id, { ...data, ...auditFields(params.userId) })
+      return { exercise: { ...params.exercise, ...data }, exerciseIdChanged: false }
+    }
+
+    const clone: Exercise = {
+      ...params.exercise,
+      ...data,
+      id: newId(),
+      isPlaceholder: false,
+      active: true,
+      archivedAt: null,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+      updatedBy: params.userId,
+      version: 1,
+    }
+    await commitAll([{ collection: 'exercises', data: clone }])
+    await workoutRepository.updateTemplateExercise(params.templateExerciseId, {
+      exerciseId: clone.id,
+      ...auditFields(params.userId),
+    })
+    return { exercise: clone, exerciseIdChanged: true }
+  },
+
   async archiveExercise(exerciseId: string, userId: string): Promise<void> {
     await exerciseRepository.update(exerciseId, {
       active: false,

@@ -23,6 +23,9 @@ import { totalVolume } from '@/utils/volume'
 import { getLastLoad, saveLastLoad } from '@/utils/exerciseLoad'
 import { clearLocalSession, saveLocalSession, type LocalWorkoutSnapshot } from '@/utils/localSession'
 
+/** Evita cancelar um treino antes da criação no Firestore terminar (senão a gravação “ressuscita” a sessão). */
+const pendingSessionWrites = new Map<string, Promise<void>>()
+
 export const workoutService = {
   async getHomeBundle(
     profileId: string,
@@ -81,14 +84,29 @@ export const workoutService = {
   async startSession(params: {
     user: UserRecord
     profile: Profile
-    template: WorkoutTemplate
+    template: WorkoutTemplate | TemplateWithMeta
   }): Promise<{ session: WorkoutSession; exercises: WorkoutSessionExercise[] }> {
-    const [allRows, catalog] = await Promise.all([
-      workoutRepository.listTemplateExercises(params.template.id),
-      exerciseRepository.listByHousehold(params.profile.householdId),
-    ])
-    const rows = allRows.filter(isLive).sort((a, b) => a.order - b.order)
-    const catalogMap = new Map(catalog.map((item) => [item.id, item]))
+    const meta = params.template as TemplateWithMeta
+    const fromMeta =
+      Array.isArray(meta.exercises) && meta.exercises.length > 0
+        ? meta.exercises.filter(isLive).sort((a, b) => a.order - b.order)
+        : null
+
+    let rows: Array<WorkoutTemplateExercise & { exercise?: Exercise | null }>
+    if (fromMeta) {
+      rows = fromMeta
+    } else {
+      const [allRows, catalog] = await Promise.all([
+        workoutRepository.listTemplateExercises(params.template.id),
+        exerciseRepository.listByHousehold(params.profile.householdId),
+      ])
+      const catalogMap = new Map(catalog.map((item) => [item.id, item]))
+      rows = allRows
+        .filter(isLive)
+        .sort((a, b) => a.order - b.order)
+        .map((row) => ({ ...row, exercise: catalogMap.get(row.exerciseId) ?? null }))
+    }
+
     const session: WorkoutSession = {
       id: newId(),
       profileId: params.profile.id,
@@ -106,7 +124,7 @@ export const workoutService = {
     }
 
     const exercises: WorkoutSessionExercise[] = rows.map((row, index) => {
-      const exercise = catalogMap.get(row.exerciseId)
+      const exercise = row.exercise
       return {
         id: newId(),
         profileId: params.profile.id,
@@ -134,18 +152,27 @@ export const workoutService = {
       }
     })
 
-    await commitAll([
-      { collection: 'workoutSessions', data: session },
-      ...exercises.map((item) => ({ collection: 'workoutSessionExercises', data: item })),
-    ])
-
-    this.persistLocal({
+    const snapshot = {
       session,
       exercises,
-      sets: [],
+      sets: [] as ExerciseSet[],
       currentExerciseId: exercises[0]?.id ?? null,
       updatedAt: Date.now(),
-    })
+    }
+    this.persistLocal(snapshot)
+
+    const write = commitAll([
+      { collection: 'workoutSessions', data: session },
+      ...exercises.map((item) => ({ collection: 'workoutSessionExercises', data: item })),
+    ]).then(() => undefined)
+    pendingSessionWrites.set(session.id, write)
+    void write
+      .catch((err) => {
+        console.error('Falha ao gravar sessão do treino', err)
+      })
+      .finally(() => {
+        pendingSessionWrites.delete(session.id)
+      })
 
     return { session, exercises }
   },
@@ -319,10 +346,76 @@ export const workoutService = {
     return updated
   },
 
+  /** Preenche séries faltantes com as cargas da última vez e marca o exercício como concluído. */
+  async completeExerciseAsLastTime(params: {
+    user: UserRecord
+    profile: Profile
+    session: WorkoutSession
+    exercise: WorkoutSessionExercise
+    sets: ExerciseSet[]
+  }): Promise<{ exercise: WorkoutSessionExercise; sets: ExerciseSet[] }> {
+    let nextSets = [...params.sets]
+    const exercise = params.exercise
+
+    const existing = nextSets
+      .filter((s) => s.sessionExerciseId === exercise.id && s.completed)
+      .sort((a, b) => a.setNumber - b.setNumber)
+    const previous = await this.lastSetsForExercise(
+      params.profile.id,
+      exercise.exerciseId,
+      params.session.id,
+    )
+    const cached = getLastLoad(params.profile.id, exercise.exerciseId)
+    const fallbackWeight = previous[0]?.weight ?? cached?.weight ?? 0
+    const fallbackReps = previous[0]?.reps ?? cached?.reps ?? exercise.repMin
+
+    for (let setNumber = 1; setNumber <= exercise.sets; setNumber += 1) {
+      if (existing.some((s) => s.setNumber === setNumber)) continue
+      const fromLast =
+        previous.find((s) => s.setNumber === setNumber) ?? previous[previous.length - 1]
+      const weight = fromLast?.weight ?? fallbackWeight
+      const reps = fromLast?.reps ?? fallbackReps
+      const rir = (fromLast?.rir ?? 1) as RirValue
+      const set: ExerciseSet = {
+        id: newId(),
+        profileId: params.profile.id,
+        householdId: params.profile.householdId,
+        userId: params.user.id,
+        exerciseId: exercise.exerciseId,
+        workoutSessionId: params.session.id,
+        sessionExerciseId: exercise.id,
+        setNumber,
+        weight,
+        reps,
+        rir,
+        completed: true,
+        createdAt: Date.now(),
+      }
+      await workoutRepository.saveSet(set)
+      nextSets = [...nextSets, set]
+    }
+
+    const todaySets = nextSets
+      .filter((s) => s.sessionExerciseId === exercise.id && s.completed)
+      .sort((a, b) => a.setNumber - b.setNumber)
+
+    await workoutRepository.updateSessionExercise(exercise.id, { status: 'completed' })
+    const updatedExercise = { ...exercise, status: 'completed' as const }
+
+    const lastDone = todaySets[todaySets.length - 1]
+    if (lastDone) {
+      saveLastLoad(params.profile.id, exercise.exerciseId, {
+        weight: lastDone.weight,
+        reps: lastDone.reps,
+      })
+    }
+
+    return { exercise: updatedExercise, sets: nextSets }
+  },
+
   /**
    * Fecha o treino sem a pessoa digitar série a série.
    * Para cada exercício pendente, copia peso/reps da última sessão (ou da última carga salva).
-   * Assim a próxima abertura continua com a mesma carga — o sistema entende que foi igual.
    */
   async completeSessionAsLastTime(params: {
     user: UserRecord
@@ -336,62 +429,17 @@ export const workoutService = {
 
     for (const exercise of params.exercises) {
       if (exercise.status === 'skipped' || exercise.status === 'completed') continue
-
-      const existing = nextSets
-        .filter((s) => s.sessionExerciseId === exercise.id && s.completed)
-        .sort((a, b) => a.setNumber - b.setNumber)
-      const previous = await this.lastSetsForExercise(
-        params.profile.id,
-        exercise.exerciseId,
-        params.session.id,
-      )
-      const cached = getLastLoad(params.profile.id, exercise.exerciseId)
-      const fallbackWeight = previous[0]?.weight ?? cached?.weight ?? 0
-      const fallbackReps = previous[0]?.reps ?? cached?.reps ?? exercise.repMin
-
-      for (let setNumber = 1; setNumber <= exercise.sets; setNumber += 1) {
-        if (existing.some((s) => s.setNumber === setNumber)) continue
-        const fromLast =
-          previous.find((s) => s.setNumber === setNumber) ?? previous[previous.length - 1]
-        const weight = fromLast?.weight ?? fallbackWeight
-        const reps = fromLast?.reps ?? fallbackReps
-        const rir = (fromLast?.rir ?? 1) as RirValue
-        const set: ExerciseSet = {
-          id: newId(),
-          profileId: params.profile.id,
-          householdId: params.profile.householdId,
-          userId: params.user.id,
-          exerciseId: exercise.exerciseId,
-          workoutSessionId: params.session.id,
-          sessionExerciseId: exercise.id,
-          setNumber,
-          weight,
-          reps,
-          rir,
-          completed: true,
-          createdAt: Date.now(),
-        }
-        await workoutRepository.saveSet(set)
-        nextSets = [...nextSets, set]
-      }
-
-      const todaySets = nextSets
-        .filter((s) => s.sessionExerciseId === exercise.id && s.completed)
-        .sort((a, b) => a.setNumber - b.setNumber)
-
-      // Marca concluído sem gerar recorde/progressão falsa (cargas = última vez).
-      await workoutRepository.updateSessionExercise(exercise.id, { status: 'completed' })
+      const result = await this.completeExerciseAsLastTime({
+        user: params.user,
+        profile: params.profile,
+        session: params.session,
+        exercise,
+        sets: nextSets,
+      })
+      nextSets = result.sets
       nextExercises = nextExercises.map((item) =>
-        item.id === exercise.id ? { ...item, status: 'completed' as const } : item,
+        item.id === exercise.id ? result.exercise : item,
       )
-
-      const lastDone = todaySets[todaySets.length - 1]
-      if (lastDone) {
-        saveLastLoad(params.profile.id, exercise.exerciseId, {
-          weight: lastDone.weight,
-          reps: lastDone.reps,
-        })
-      }
     }
 
     const finished = await this.finishSession({
@@ -411,6 +459,15 @@ export const workoutService = {
     exercises: WorkoutSessionExercise[]
     sets: ExerciseSet[]
   }): Promise<void> {
+    const pending = pendingSessionWrites.get(params.session.id)
+    if (pending) {
+      try {
+        await pending
+      } catch {
+        /* criação falhou — ainda assim limpamos o que existir */
+      }
+    }
+
     const records = (await workoutRepository.listRecords(params.profileId)).filter(
       (record) => record.sessionId === params.session.id,
     )
@@ -421,6 +478,7 @@ export const workoutService = {
       { collection: 'workoutSessions', id: params.session.id },
     ])
     clearLocalSession(params.profileId)
+    pendingSessionWrites.delete(params.session.id)
   },
 
   persistLocal(snapshot: LocalWorkoutSnapshot): void {
