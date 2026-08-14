@@ -310,6 +310,10 @@ export function CaloriesPage() {
                         {formatKcal(item.calories * factor)}
                       </p>
                     </div>
+                    <p className="mt-2 text-xs text-muted tabular-nums">
+                      Prot {formatGrams(item.protein * factor)} · Carbo {formatGrams(item.carbs * factor)} · Gord{' '}
+                      {formatGrams(item.fat * factor)}
+                    </p>
                     <div className="mt-3">
                       <NumberStepper
                         compact

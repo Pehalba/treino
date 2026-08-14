@@ -29,6 +29,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 
 type MealWithItems = DietMeal & { items: DietMealItem[] }
+type DietTab = DietMenuCategory | 'supplements'
 
 const SHORT_MEAL_LABELS: Record<DietMenuCategory, string> = {
   breakfast: 'Café da manhã',
@@ -50,7 +51,7 @@ export function DietPage() {
   const [meals, setMeals] = useState<MealWithItems[]>([])
   const [planName, setPlanName] = useState('Minha dieta')
   const [loading, setLoading] = useState(true)
-  const [category, setCategory] = useState<DietMenuCategory>('breakfast')
+  const [category, setCategory] = useState<DietTab>('breakfast')
   const [videoMeal, setVideoMeal] = useState<MealWithItems | null>(null)
   const [detailMeal, setDetailMeal] = useState<MealWithItems | null>(null)
   const [supplements, setSupplements] = useState<DietSupplement[]>([])
@@ -101,7 +102,20 @@ export function DietPage() {
   }, [activeProfile?.id])
 
   const sections = useMemo(() => groupMealsByMenuCategory(meals), [meals])
-  const current = sections.find((section) => section.category === category) ?? sections[0]
+  const tabs = useMemo(
+    () => [
+      ...sections.map((section) => ({
+        id: section.category as DietTab,
+        label: SHORT_MEAL_LABELS[section.category],
+      })),
+      { id: 'supplements' as const, label: 'Suplementação' },
+    ],
+    [sections],
+  )
+  const isSupplementsTab = category === 'supplements'
+  const current = isSupplementsTab
+    ? null
+    : sections.find((section) => section.category === category) ?? sections[0]
   const dishes = current?.meals ?? []
 
   const supplementCards = useMemo(() => {
@@ -141,10 +155,11 @@ export function DietPage() {
   }, [editMeal, dishMultipliers])
 
   useEffect(() => {
+    if (isSupplementsTab) return
     if (!current || current.meals.length > 0) return
     const first = sections.find((section) => section.meals.length > 0)
     if (first) setCategory(first.category)
-  }, [current, sections])
+  }, [current, sections, isSupplementsTab])
 
   function openDishEditor(meal: MealWithItems) {
     const next: Record<string, number> = {}
@@ -279,140 +294,149 @@ export function DietPage() {
           </div>
 
           <div className="no-scrollbar -mx-1 mb-5 flex gap-2 overflow-x-auto px-1 pb-1">
-            {sections.map((section) => {
-              const selected = section.category === category
+            {tabs.map((tab) => {
+              const selected = tab.id === category
               return (
                 <button
-                  key={section.category}
+                  key={tab.id}
                   type="button"
-                  onClick={() => setCategory(section.category)}
+                  onClick={() => setCategory(tab.id)}
                   className={cn(
                     'shrink-0 rounded-full px-4 py-2 text-sm font-semibold transition',
                     selected ? 'bg-accent text-bg' : 'bg-card2 text-muted',
                   )}
                 >
-                  {SHORT_MEAL_LABELS[section.category]}
+                  {tab.label}
                 </button>
               )
             })}
           </div>
 
-          <div className="mb-4 flex items-end justify-between gap-3">
-            <h3 className="font-display text-xl">{current ? MEAL_LABELS[current.category] : 'Refeição'}</h3>
-            <p className="text-sm text-muted">
-              {dishes.length === 0
-                ? 'Sem opções ainda'
-                : `${dishes.length} ${dishes.length === 1 ? 'opção' : 'opções'}`}
-            </p>
-          </div>
-
-          {dishes.length === 0 ? (
-            <Card className="border border-dashed border-line bg-transparent">
-              <p className="text-sm text-muted">Nenhum prato nesta refeição ainda.</p>
-            </Card>
-          ) : (
-            <div className="grid grid-cols-1 gap-3">
-              {dishes.map((meal) => {
-                const totals = mealMacroTotals(meal.items)
-                const preview = meal.items.map((item) => item.foodName).filter(Boolean).join(' · ')
-                return (
-                  <button
-                    key={meal.id}
-                    type="button"
-                    onClick={() => setDetailMeal(meal)}
-                    className="w-full rounded-[1.75rem] bg-card p-4 text-left transition active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
-                  >
-                    <div className="flex items-start justify-between gap-3">
-                      <h4 className="min-w-0 font-display text-xl leading-tight">
-                        {meal.name || current?.label}
-                      </h4>
-                      <div className="shrink-0 text-right">
-                        <p className="font-display text-2xl leading-none text-accent">
-                          {Math.round(totals.calories)}
-                        </p>
-                        <p className="mt-0.5 text-[10px] tracking-[0.14em] text-muted uppercase">kcal</p>
-                      </div>
-                    </div>
-                    {preview ? (
-                      <p className="mt-3 line-clamp-2 text-sm leading-snug text-muted">{preview}</p>
-                    ) : (
-                      <p className="mt-3 text-sm text-muted">Sem alimentos ainda</p>
-                    )}
-                    <div className="mt-3 flex items-center justify-between gap-2">
-                      <p className="text-xs text-muted">
-                        {meal.items.length === 0
-                          ? 'Vazio'
-                          : `${meal.items.length} ${meal.items.length === 1 ? 'item' : 'itens'} · Prot ${formatGrams(totals.protein)}`}
-                      </p>
-                      <span className="text-xs font-semibold text-accent">Ver prato</span>
-                    </div>
-                  </button>
-                )
-              })}
-            </div>
-          )}
-
-          <section className="mt-8">
-            <div className="mb-3 flex items-end justify-between gap-3">
-              <div>
-                <h3 className="font-display text-xl">Suplementação</h3>
-                <p className="mt-1 text-sm text-muted">Doses do dia com calorias e proteína.</p>
+          {isSupplementsTab ? (
+            <>
+              <div className="mb-4 flex items-end justify-between gap-3">
+                <div>
+                  <h3 className="font-display text-xl">Suplementação</h3>
+                  <p className="mt-1 text-sm text-muted">Doses do dia com calorias e proteína.</p>
+                </div>
+                {supplementDayTotals.calories > 0 || supplementDayTotals.protein > 0 ? (
+                  <p className="shrink-0 text-right text-sm text-muted">
+                    Total{' '}
+                    <span className="font-semibold text-ink">
+                      {formatKcal(supplementDayTotals.calories)} · {formatGrams(supplementDayTotals.protein)}
+                    </span>
+                  </p>
+                ) : null}
               </div>
-              {supplementDayTotals.calories > 0 || supplementDayTotals.protein > 0 ? (
-                <p className="shrink-0 text-right text-sm text-muted">
-                  Total{' '}
-                  <span className="font-semibold text-ink">
-                    {formatKcal(supplementDayTotals.calories)} · {formatGrams(supplementDayTotals.protein)}
-                  </span>
-                </p>
-              ) : null}
-            </div>
 
-            <div className="space-y-3">
-              {supplementCards.map(({ kind, item }) => {
-                const doses = item?.dosesPerDay ?? 0
-                const dayCalories = doses * (item?.caloriesPerDose ?? 0)
-                const dayProtein = doses * (item?.proteinPerDose ?? 0)
-                const configured = Boolean(item && (item.dosesPerDay > 0 || item.caloriesPerDose > 0 || item.proteinPerDose > 0))
-                return (
-                  <button
-                    key={kind}
-                    type="button"
-                    onClick={() => openSupplementEditor(kind)}
-                    className="w-full rounded-3xl bg-card p-4 text-left transition active:scale-[0.99]"
-                  >
-                    <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <p className="text-xs font-semibold tracking-widest text-muted uppercase">
-                          {DIET_SUPPLEMENT_LABELS[kind]}
-                        </p>
-                        <p className="mt-1 font-display text-xl leading-tight">
-                          {item?.name || DEFAULT_NAMES[kind]}
-                        </p>
-                      </div>
-                      <span className="shrink-0 rounded-full bg-card2 px-3 py-1 text-xs font-semibold text-accent">
-                        Editar
-                      </span>
-                    </div>
-                    {configured ? (
-                      <>
-                        <p className="mt-3 text-sm text-muted">
-                          {doses} {doses === 1 ? 'dose' : 'doses'}/dia ·{' '}
-                          {formatKcal(item?.caloriesPerDose ?? 0)} e {formatGrams(item?.proteinPerDose ?? 0)} por dose
-                        </p>
-                        <div className="mt-3 flex flex-wrap gap-2">
-                          <MacroChip label="Dia" value={formatKcal(dayCalories)} />
-                          <MacroChip label="Prot/dia" value={formatGrams(dayProtein)} />
+              <div className="grid grid-cols-1 gap-3">
+                {supplementCards.map(({ kind, item }) => {
+                  const doses = item?.dosesPerDay ?? 0
+                  const dayCalories = doses * (item?.caloriesPerDose ?? 0)
+                  const dayProtein = doses * (item?.proteinPerDose ?? 0)
+                  const configured = Boolean(
+                    item && (item.dosesPerDay > 0 || item.caloriesPerDose > 0 || item.proteinPerDose > 0),
+                  )
+                  return (
+                    <button
+                      key={kind}
+                      type="button"
+                      onClick={() => openSupplementEditor(kind)}
+                      className="w-full rounded-[1.75rem] bg-card p-4 text-left transition active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="text-xs font-semibold tracking-widest text-muted uppercase">
+                            {DIET_SUPPLEMENT_LABELS[kind]}
+                          </p>
+                          <p className="mt-1 font-display text-xl leading-tight">
+                            {item?.name || DEFAULT_NAMES[kind]}
+                          </p>
                         </div>
-                      </>
-                    ) : (
-                      <p className="mt-3 text-sm text-muted">Toque para informar doses, calorias e proteína.</p>
-                    )}
-                  </button>
-                )
-              })}
-            </div>
-          </section>
+                        <span className="shrink-0 text-xs font-semibold text-accent">Editar</span>
+                      </div>
+                      {configured ? (
+                        <>
+                          <p className="mt-3 text-sm text-muted">
+                            {doses} {doses === 1 ? 'dose' : 'doses'}/dia ·{' '}
+                            {formatKcal(item?.caloriesPerDose ?? 0)} e{' '}
+                            {formatGrams(item?.proteinPerDose ?? 0)} por dose
+                          </p>
+                          <div className="mt-3 flex flex-wrap gap-2">
+                            <MacroChip label="Dia" value={formatKcal(dayCalories)} />
+                            <MacroChip label="Prot/dia" value={formatGrams(dayProtein)} />
+                          </div>
+                        </>
+                      ) : (
+                        <p className="mt-3 text-sm text-muted">
+                          Toque para informar doses, calorias e proteína.
+                        </p>
+                      )}
+                    </button>
+                  )
+                })}
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="mb-4 flex items-end justify-between gap-3">
+                <h3 className="font-display text-xl">
+                  {current ? MEAL_LABELS[current.category] : 'Refeição'}
+                </h3>
+                <p className="text-sm text-muted">
+                  {dishes.length === 0
+                    ? 'Sem opções ainda'
+                    : `${dishes.length} ${dishes.length === 1 ? 'opção' : 'opções'}`}
+                </p>
+              </div>
+
+              {dishes.length === 0 ? (
+                <Card className="border border-dashed border-line bg-transparent">
+                  <p className="text-sm text-muted">Nenhum prato nesta refeição ainda.</p>
+                </Card>
+              ) : (
+                <div className="grid grid-cols-1 gap-3">
+                  {dishes.map((meal) => {
+                    const totals = mealMacroTotals(meal.items)
+                    const preview = meal.items.map((item) => item.foodName).filter(Boolean).join(' · ')
+                    return (
+                      <button
+                        key={meal.id}
+                        type="button"
+                        onClick={() => setDetailMeal(meal)}
+                        className="w-full rounded-[1.75rem] bg-card p-4 text-left transition active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <h4 className="min-w-0 font-display text-xl leading-tight">
+                            {meal.name || current?.label}
+                          </h4>
+                          <div className="shrink-0 text-right">
+                            <p className="font-display text-2xl leading-none text-accent">
+                              {Math.round(totals.calories)}
+                            </p>
+                            <p className="mt-0.5 text-[10px] tracking-[0.14em] text-muted uppercase">kcal</p>
+                          </div>
+                        </div>
+                        {preview ? (
+                          <p className="mt-3 line-clamp-2 text-sm leading-snug text-muted">{preview}</p>
+                        ) : (
+                          <p className="mt-3 text-sm text-muted">Sem alimentos ainda</p>
+                        )}
+                        <div className="mt-3 flex items-center justify-between gap-2">
+                          <p className="text-xs text-muted">
+                            {meal.items.length === 0
+                              ? 'Vazio'
+                              : `${meal.items.length} ${meal.items.length === 1 ? 'item' : 'itens'} · Prot ${formatGrams(totals.protein)}`}
+                          </p>
+                          <span className="text-xs font-semibold text-accent">Ver prato</span>
+                        </div>
+                      </button>
+                    )
+                  })}
+                </div>
+              )}
+            </>
+          )}
 
           <Link
             to="/calorias"
