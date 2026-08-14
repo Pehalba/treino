@@ -416,6 +416,7 @@ export function WorkoutSummary({
   progressions,
   records,
   volume,
+  withoutData = false,
   onHome,
 }: {
   name: string
@@ -426,12 +427,18 @@ export function WorkoutSummary({
   progressions: number
   records: number
   volume: number
+  withoutData?: boolean
   onHome: () => void
 }) {
   return (
     <div className="mx-auto flex min-h-svh max-w-lg flex-col justify-center px-5 py-10 text-center">
       <p className="font-display text-4xl">Treino concluído 🎉</p>
       <p className="mt-2 text-xl text-muted">{name}</p>
+      {withoutData ? (
+        <p className="mt-3 text-sm text-muted">
+          Concluído sem registrar — cargas iguais à última vez.
+        </p>
+      ) : null}
       <div className="mt-8 grid grid-cols-2 gap-3 text-left">
         <Stat label="Tempo" value={formatTimerSafe(duration)} />
         <Stat label="Exercícios" value={`${completed}/${total}`} />

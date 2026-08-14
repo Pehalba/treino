@@ -232,6 +232,8 @@ export type WorkoutSession = {
   finishedAt: number | null
   durationSeconds: number
   completed: boolean
+  /** Treino marcado como feito sem digitar séries; cargas copiadas da última vez. */
+  completedWithoutData?: boolean
   totalVolume: number
   exercisesCompleted: number
   notes: string

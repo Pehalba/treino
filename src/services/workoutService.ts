@@ -20,6 +20,7 @@ import { newId } from '@/utils/ids'
 import { pickNextExercise, withMuscle } from '@/utils/muscleOrder'
 import { detectNewRecords, summarizeProgression } from '@/utils/progression'
 import { totalVolume } from '@/utils/volume'
+import { getLastLoad, saveLastLoad } from '@/utils/exerciseLoad'
 import { clearLocalSession, saveLocalSession, type LocalWorkoutSnapshot } from '@/utils/localSession'
 
 export const workoutService = {
@@ -294,6 +295,7 @@ export const workoutService = {
     session: WorkoutSession
     exercises: WorkoutSessionExercise[]
     sets: ExerciseSet[]
+    completedWithoutData?: boolean
   }): Promise<WorkoutSession> {
     const finishedAt = Date.now()
     const completedExercises = params.exercises.filter((e) => e.status === 'completed').length
@@ -303,12 +305,104 @@ export const workoutService = {
       finishedAt,
       durationSeconds: Math.max(0, Math.round((finishedAt - params.session.startedAt) / 1000)),
       completed: true,
+      completedWithoutData: params.completedWithoutData === true,
       totalVolume: volume,
       exercisesCompleted: completedExercises,
+      notes: params.completedWithoutData
+        ? params.session.notes
+          ? `${params.session.notes}\nConcluído sem registrar (igual à última vez).`
+          : 'Concluído sem registrar (igual à última vez).'
+        : params.session.notes,
     }
     await workoutRepository.saveSession(updated)
     clearLocalSession(params.profileId)
     return updated
+  },
+
+  /**
+   * Fecha o treino sem a pessoa digitar série a série.
+   * Para cada exercício pendente, copia peso/reps da última sessão (ou da última carga salva).
+   * Assim a próxima abertura continua com a mesma carga — o sistema entende que foi igual.
+   */
+  async completeSessionAsLastTime(params: {
+    user: UserRecord
+    profile: Profile
+    session: WorkoutSession
+    exercises: WorkoutSessionExercise[]
+    sets: ExerciseSet[]
+  }): Promise<{ session: WorkoutSession; exercises: WorkoutSessionExercise[]; sets: ExerciseSet[] }> {
+    let nextExercises = [...params.exercises]
+    let nextSets = [...params.sets]
+
+    for (const exercise of params.exercises) {
+      if (exercise.status === 'skipped' || exercise.status === 'completed') continue
+
+      const existing = nextSets
+        .filter((s) => s.sessionExerciseId === exercise.id && s.completed)
+        .sort((a, b) => a.setNumber - b.setNumber)
+      const previous = await this.lastSetsForExercise(
+        params.profile.id,
+        exercise.exerciseId,
+        params.session.id,
+      )
+      const cached = getLastLoad(params.profile.id, exercise.exerciseId)
+      const fallbackWeight = previous[0]?.weight ?? cached?.weight ?? 0
+      const fallbackReps = previous[0]?.reps ?? cached?.reps ?? exercise.repMin
+
+      for (let setNumber = 1; setNumber <= exercise.sets; setNumber += 1) {
+        if (existing.some((s) => s.setNumber === setNumber)) continue
+        const fromLast =
+          previous.find((s) => s.setNumber === setNumber) ?? previous[previous.length - 1]
+        const weight = fromLast?.weight ?? fallbackWeight
+        const reps = fromLast?.reps ?? fallbackReps
+        const rir = (fromLast?.rir ?? 1) as RirValue
+        const set: ExerciseSet = {
+          id: newId(),
+          profileId: params.profile.id,
+          householdId: params.profile.householdId,
+          userId: params.user.id,
+          exerciseId: exercise.exerciseId,
+          workoutSessionId: params.session.id,
+          sessionExerciseId: exercise.id,
+          setNumber,
+          weight,
+          reps,
+          rir,
+          completed: true,
+          createdAt: Date.now(),
+        }
+        await workoutRepository.saveSet(set)
+        nextSets = [...nextSets, set]
+      }
+
+      const todaySets = nextSets
+        .filter((s) => s.sessionExerciseId === exercise.id && s.completed)
+        .sort((a, b) => a.setNumber - b.setNumber)
+
+      // Marca concluído sem gerar recorde/progressão falsa (cargas = última vez).
+      await workoutRepository.updateSessionExercise(exercise.id, { status: 'completed' })
+      nextExercises = nextExercises.map((item) =>
+        item.id === exercise.id ? { ...item, status: 'completed' as const } : item,
+      )
+
+      const lastDone = todaySets[todaySets.length - 1]
+      if (lastDone) {
+        saveLastLoad(params.profile.id, exercise.exerciseId, {
+          weight: lastDone.weight,
+          reps: lastDone.reps,
+        })
+      }
+    }
+
+    const finished = await this.finishSession({
+      profileId: params.profile.id,
+      session: params.session,
+      exercises: nextExercises,
+      sets: nextSets,
+      completedWithoutData: true,
+    })
+
+    return { session: finished, exercises: nextExercises, sets: nextSets }
   },
 
   async discardSession(params: {

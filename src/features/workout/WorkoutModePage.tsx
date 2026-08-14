@@ -70,6 +70,8 @@ export function WorkoutModePage() {
   const [replaceOpen, setReplaceOpen] = useState(false)
   const [cancelOpen, setCancelOpen] = useState(false)
   const [cancelling, setCancelling] = useState(false)
+  const [finishAsLastOpen, setFinishAsLastOpen] = useState(false)
+  const [finishingAsLast, setFinishingAsLast] = useState(false)
   const [timerOpen, setTimerOpen] = useState(false)
   const [timerMinutes, setTimerMinutes] = useState(2)
   const setMinimizedWorkout = useAppStore((s) => s.setMinimizedWorkout)
@@ -394,6 +396,30 @@ export function WorkoutModePage() {
     setMinimizedWorkout(null)
   }
 
+  async function finishAsLastTime() {
+    if (!user || !session || !activeProfile) return
+    setFinishingAsLast(true)
+    try {
+      rest.skip()
+      const result = await workoutService.completeSessionAsLastTime({
+        user,
+        profile: activeProfile,
+        session,
+        exercises,
+        sets,
+      })
+      setExercises(result.exercises)
+      setSets(result.sets)
+      setFinished(result.session)
+      setDoneSummary(null)
+      setMinimizedWorkout(null)
+      setFinishAsLastOpen(false)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Não foi possível concluir o treino.')
+      setFinishingAsLast(false)
+    }
+  }
+
   function minimize() {
     if (!session) return
     rest.skip()
@@ -449,6 +475,7 @@ export function WorkoutModePage() {
         progressions={progressions}
         records={records}
         volume={done.totalVolume}
+        withoutData={done.completedWithoutData === true}
         onHome={() => navigate('/')}
       />
     )
@@ -603,6 +630,10 @@ export function WorkoutModePage() {
         </motion.div>
       </AnimatePresence>
 
+      <Button className="mt-8 w-full" variant="ghost" onClick={() => setFinishAsLastOpen(true)}>
+        Concluir treino sem dados
+      </Button>
+
       <VideoModal url={youtubeUrl} open={videoOpen} onClose={() => setVideoOpen(false)} />
       <ImageModal
         url={imageUrl ?? ''}
@@ -644,6 +675,34 @@ export function WorkoutModePage() {
           </Button>
           <Button variant="secondary" onClick={() => setCancelOpen(false)} disabled={cancelling}>
             Continuar treino
+          </Button>
+        </div>
+      </Modal>
+      <Modal
+        open={finishAsLastOpen}
+        onClose={() => !finishingAsLast && setFinishAsLastOpen(false)}
+        title="Concluir sem registrar?"
+      >
+        <p className="text-sm text-muted">
+          O treino será marcado como feito usando as mesmas cargas da última vez em cada exercício
+          (ex.: leg press 40 kg continua 40 kg). Nada novo de progressão ou recorde. Ideal quando você
+          treinou mas esqueceu de anotar.
+        </p>
+        <div className="mt-5 grid grid-cols-1 gap-2">
+          <Button
+            variant="primary"
+            size="xl"
+            onClick={() => void finishAsLastTime()}
+            disabled={finishingAsLast}
+          >
+            {finishingAsLast ? 'Concluindo…' : 'Concluir com cargas da última vez'}
+          </Button>
+          <Button
+            variant="secondary"
+            onClick={() => setFinishAsLastOpen(false)}
+            disabled={finishingAsLast}
+          >
+            Voltar
           </Button>
         </div>
       </Modal>
