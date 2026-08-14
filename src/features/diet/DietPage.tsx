@@ -4,9 +4,11 @@ import { Card } from '@/components/ui/Card'
 import { EditButton } from '@/components/ui/EditButton'
 import { Input } from '@/components/ui/Input'
 import { Modal } from '@/components/ui/Modal'
+import { NumberStepper } from '@/components/ui/NumberStepper'
 import { Skeleton } from '@/components/ui/Skeleton'
 import { VideoModal } from '@/features/workout/WorkoutPieces'
 import { useSession } from '@/hooks/useSession'
+import { dietEditorService } from '@/services/dietEditorService'
 import { dietService } from '@/services/nutritionService'
 import {
   DIET_SUPPLEMENT_KINDS,
@@ -17,11 +19,12 @@ import {
   type DietSupplement,
   type DietSupplementKind,
 } from '@/types'
-import { loadDietCache } from '@/utils/dietCache'
+import { loadDietCache, saveDietCache } from '@/utils/dietCache'
 import { loadSupplementCache } from '@/utils/supplementCache'
 import { cn } from '@/utils/cn'
 import { groupMealsByMenuCategory, mealMacroTotals, type DietMenuCategory } from '@/utils/dietMeals'
 import { formatGrams, formatKcal, parseLocaleNumber } from '@/utils/format'
+import { scaleMealItemByFactor } from '@/utils/scaleMealItem'
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 
@@ -49,6 +52,7 @@ export function DietPage() {
   const [loading, setLoading] = useState(true)
   const [category, setCategory] = useState<DietMenuCategory>('breakfast')
   const [videoMeal, setVideoMeal] = useState<MealWithItems | null>(null)
+  const [detailMeal, setDetailMeal] = useState<MealWithItems | null>(null)
   const [supplements, setSupplements] = useState<DietSupplement[]>([])
   const [editingKind, setEditingKind] = useState<DietSupplementKind | null>(null)
   const [savingSupplement, setSavingSupplement] = useState(false)
@@ -59,6 +63,11 @@ export function DietPage() {
   const [formProtein, setFormProtein] = useState('')
   const [formCarbs, setFormCarbs] = useState('')
   const [formFat, setFormFat] = useState('')
+  const [editMeal, setEditMeal] = useState<MealWithItems | null>(null)
+  const [dishMultipliers, setDishMultipliers] = useState<Record<string, number>>({})
+  const [savingDish, setSavingDish] = useState(false)
+  const [dishError, setDishError] = useState('')
+  const [dishName, setDishName] = useState('')
 
   useEffect(() => {
     if (!activeProfile) return
@@ -115,11 +124,86 @@ export function DietPage() {
     )
   }, [supplements])
 
+  const editedDishTotals = useMemo(() => {
+    if (!editMeal) return { calories: 0, protein: 0, carbs: 0, fat: 0 }
+    return editMeal.items.reduce(
+      (acc, item) => {
+        const factor = dishMultipliers[item.id] ?? 1
+        return {
+          calories: acc.calories + item.calories * factor,
+          protein: acc.protein + item.protein * factor,
+          carbs: acc.carbs + item.carbs * factor,
+          fat: acc.fat + item.fat * factor,
+        }
+      },
+      { calories: 0, protein: 0, carbs: 0, fat: 0 },
+    )
+  }, [editMeal, dishMultipliers])
+
   useEffect(() => {
     if (!current || current.meals.length > 0) return
     const first = sections.find((section) => section.meals.length > 0)
     if (first) setCategory(first.category)
   }, [current, sections])
+
+  function openDishEditor(meal: MealWithItems) {
+    const next: Record<string, number> = {}
+    for (const item of meal.items) next[item.id] = 1
+    setDishMultipliers(next)
+    setDishName(meal.name)
+    setDishError('')
+    setEditMeal(meal)
+  }
+
+  async function saveDishEdit() {
+    if (!user || !activeProfile || !editMeal) return
+    setSavingDish(true)
+    setDishError('')
+    try {
+      const nextItems = editMeal.items.map((item) =>
+        scaleMealItemByFactor(item, dishMultipliers[item.id] ?? 1),
+      )
+      const nameChanged = dishName.trim() && dishName.trim() !== editMeal.name
+      if (nameChanged) {
+        await dietEditorService.updateMeal(editMeal.id, { name: dishName.trim() }, user.id)
+      }
+      for (let i = 0; i < editMeal.items.length; i += 1) {
+        const before = editMeal.items[i]
+        const after = nextItems[i]
+        const factor = dishMultipliers[before.id] ?? 1
+        if (factor === 1) continue
+        await dietEditorService.updateItem(
+          before.id,
+          {
+            calories: after.calories,
+            protein: after.protein,
+            carbs: after.carbs,
+            fat: after.fat,
+            quantityLabel: after.quantityLabel,
+            manualOverride: true,
+          },
+          user.id,
+        )
+      }
+      const updatedMeal: MealWithItems = {
+        ...editMeal,
+        name: nameChanged ? dishName.trim() : editMeal.name,
+        items: nextItems,
+      }
+      const nextMeals = meals.map((meal) => (meal.id === updatedMeal.id ? updatedMeal : meal))
+      setMeals(nextMeals)
+      setDetailMeal(updatedMeal)
+      const cached = loadDietCache(activeProfile.id)
+      if (cached?.plan) {
+        saveDietCache(activeProfile.id, { plan: cached.plan, meals: nextMeals })
+      }
+      setEditMeal(null)
+    } catch (err) {
+      setDishError(err instanceof Error ? err.message : 'Não foi possível salvar o prato.')
+    } finally {
+      setSavingDish(false)
+    }
+  }
 
   function openSupplementEditor(kind: DietSupplementKind) {
     const item = supplements.find((row) => row.kind === kind)
@@ -227,48 +311,42 @@ export function DietPage() {
               <p className="text-sm text-muted">Nenhum prato nesta refeição ainda.</p>
             </Card>
           ) : (
-            <div className="space-y-4">
+            <div className="grid grid-cols-1 gap-3">
               {dishes.map((meal) => {
                 const totals = mealMacroTotals(meal.items)
+                const preview = meal.items.map((item) => item.foodName).filter(Boolean).join(' · ')
                 return (
-                  <article key={meal.id} className="overflow-hidden rounded-3xl bg-card">
-                    <div className="flex items-start justify-between gap-3 px-4 pt-4">
-                      <h4 className="font-display text-xl leading-tight">{meal.name || current?.label}</h4>
+                  <button
+                    key={meal.id}
+                    type="button"
+                    onClick={() => setDetailMeal(meal)}
+                    className="w-full rounded-[1.75rem] bg-card p-4 text-left transition active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <h4 className="min-w-0 font-display text-xl leading-tight">
+                        {meal.name || current?.label}
+                      </h4>
                       <div className="shrink-0 text-right">
-                        <p className="font-display text-2xl leading-none text-accent">{Math.round(totals.calories)}</p>
-                        <p className="mt-0.5 text-[11px] tracking-wide text-muted uppercase">kcal</p>
+                        <p className="font-display text-2xl leading-none text-accent">
+                          {Math.round(totals.calories)}
+                        </p>
+                        <p className="mt-0.5 text-[10px] tracking-[0.14em] text-muted uppercase">kcal</p>
                       </div>
                     </div>
-                    <div className="mt-3 flex flex-wrap gap-2 px-4">
-                      <MacroChip label="Prot" value={formatGrams(totals.protein)} />
-                      <MacroChip label="Carbo" value={formatGrams(totals.carbs)} />
-                      <MacroChip label="Gord" value={formatGrams(totals.fat)} />
+                    {preview ? (
+                      <p className="mt-3 line-clamp-2 text-sm leading-snug text-muted">{preview}</p>
+                    ) : (
+                      <p className="mt-3 text-sm text-muted">Sem alimentos ainda</p>
+                    )}
+                    <div className="mt-3 flex items-center justify-between gap-2">
+                      <p className="text-xs text-muted">
+                        {meal.items.length === 0
+                          ? 'Vazio'
+                          : `${meal.items.length} ${meal.items.length === 1 ? 'item' : 'itens'} · Prot ${formatGrams(totals.protein)}`}
+                      </p>
+                      <span className="text-xs font-semibold text-accent">Ver prato</span>
                     </div>
-                    {meal.items.length === 0 ? (
-                      <p className="px-4 pt-3 pb-4 text-sm text-muted">Ainda sem alimentos neste prato.</p>
-                    ) : (
-                      <ul className="mt-4 divide-y divide-line/80">
-                        {meal.items.map((item) => (
-                          <li key={item.id} className="flex items-start justify-between gap-3 px-4 py-3">
-                            <div className="min-w-0">
-                              <p className="font-medium">{item.foodName}</p>
-                              {item.quantityLabel ? <p className="mt-0.5 text-sm text-muted">{item.quantityLabel}</p> : null}
-                            </div>
-                            <p className="shrink-0 text-sm text-muted">{formatKcal(item.calories)}</p>
-                          </li>
-                        ))}
-                      </ul>
-                    )}
-                    {meal.youtubeUrl ? (
-                      <div className="px-4 pt-1 pb-4">
-                        <Button className="w-full" variant="secondary" onClick={() => setVideoMeal(meal)}>
-                          Como preparar
-                        </Button>
-                      </div>
-                    ) : (
-                      <div className="h-2" />
-                    )}
-                  </article>
+                  </button>
                 )
               })}
             </div>
@@ -351,6 +429,88 @@ export function DietPage() {
         onClose={() => setVideoMeal(null)}
       />
       <Modal
+        open={Boolean(detailMeal) && !editMeal}
+        onClose={() => setDetailMeal(null)}
+        title={detailMeal?.name || 'Prato'}
+      >
+        {detailMeal ? (
+          <DishDetail
+            meal={detailMeal}
+            onEdit={() => openDishEditor(detailMeal)}
+            onVideo={() => setVideoMeal(detailMeal)}
+          />
+        ) : null}
+      </Modal>
+      <Modal
+        open={Boolean(editMeal)}
+        onClose={() => !savingDish && setEditMeal(null)}
+        title="Editar prato"
+      >
+        {editMeal ? (
+          <>
+            <p className="mb-3 text-sm text-muted">
+              1,0 = porção atual. Ex.: ovo de 1 para 1,5 ou 2 recalcula calorias e quantidade na dieta.
+            </p>
+            <label className="mb-4 block text-sm text-muted">
+              Nome do prato
+              <Input className="mt-1" value={dishName} onChange={(e) => setDishName(e.target.value)} />
+            </label>
+            <div className="space-y-4">
+              {editMeal.items.map((item) => {
+                const factor = dishMultipliers[item.id] ?? 1
+                const preview = scaleMealItemByFactor(item, factor)
+                return (
+                  <div key={item.id} className="rounded-2xl bg-card2 p-3">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="font-medium">{item.foodName}</p>
+                        <p className="mt-0.5 text-sm text-muted">{preview.quantityLabel || item.quantityLabel}</p>
+                      </div>
+                      <p className="shrink-0 text-sm font-semibold tabular-nums">
+                        {formatKcal(preview.calories)}
+                      </p>
+                    </div>
+                    <div className="mt-3">
+                      <NumberStepper
+                        compact
+                        value={factor}
+                        step={0.5}
+                        min={0}
+                        suffix="×"
+                        onChange={(value) =>
+                          setDishMultipliers((prev) => ({
+                            ...prev,
+                            [item.id]: Math.round(value * 2) / 2,
+                          }))
+                        }
+                      />
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+            <div className="mt-5 rounded-2xl bg-card2 p-4">
+              <p className="text-xs tracking-wide text-muted uppercase">Total do prato</p>
+              <p className="mt-1 font-display text-3xl text-accent">{Math.round(editedDishTotals.calories)}</p>
+              <p className="text-sm text-muted">kcal</p>
+              <p className="mt-2 text-sm text-muted">
+                Prot {formatGrams(editedDishTotals.protein)} · Carbo {formatGrams(editedDishTotals.carbs)} · Gord{' '}
+                {formatGrams(editedDishTotals.fat)}
+              </p>
+            </div>
+            {dishError ? <p className="mt-3 text-sm text-danger">{dishError}</p> : null}
+            <div className="mt-4 grid grid-cols-1 gap-2">
+              <Button size="xl" disabled={savingDish} onClick={() => void saveDishEdit()}>
+                {savingDish ? 'Salvando…' : 'Salvar no prato'}
+              </Button>
+              <Button variant="secondary" disabled={savingDish} onClick={() => setEditMeal(null)}>
+                Cancelar
+              </Button>
+            </div>
+          </>
+        ) : null}
+      </Modal>
+      <Modal
         open={Boolean(editingKind)}
         onClose={() => !savingSupplement && setEditingKind(null)}
         title={editingKind ? `Suplemento · ${DIET_SUPPLEMENT_LABELS[editingKind]}` : 'Suplemento'}
@@ -397,5 +557,59 @@ function MacroChip({ label, value }: { label: string; value: string }) {
     <span className="rounded-full bg-card2 px-3 py-1 text-xs font-medium text-muted">
       <span className="text-ink">{label}</span> {value}
     </span>
+  )
+}
+
+function DishDetail({
+  meal,
+  onEdit,
+  onVideo,
+}: {
+  meal: MealWithItems
+  onEdit: () => void
+  onVideo: () => void
+}) {
+  const totals = mealMacroTotals(meal.items)
+  return (
+    <>
+      <div className="flex items-end justify-between gap-3">
+        <div>
+          <p className="font-display text-4xl leading-none text-accent">{Math.round(totals.calories)}</p>
+          <p className="mt-1 text-xs tracking-wide text-muted uppercase">kcal no prato</p>
+        </div>
+        <div className="flex flex-wrap justify-end gap-2">
+          <MacroChip label="Prot" value={formatGrams(totals.protein)} />
+          <MacroChip label="Carbo" value={formatGrams(totals.carbs)} />
+          <MacroChip label="Gord" value={formatGrams(totals.fat)} />
+        </div>
+      </div>
+
+      {meal.items.length === 0 ? (
+        <p className="mt-5 text-sm text-muted">Ainda sem alimentos neste prato.</p>
+      ) : (
+        <ul className="mt-5 divide-y divide-line/80 overflow-hidden rounded-2xl bg-card2">
+          {meal.items.map((item) => (
+            <li key={item.id} className="flex items-start justify-between gap-3 px-4 py-3">
+              <div className="min-w-0">
+                <p className="font-medium">{item.foodName}</p>
+                {item.quantityLabel ? <p className="mt-0.5 text-sm text-muted">{item.quantityLabel}</p> : null}
+              </div>
+              <p className="shrink-0 text-sm text-muted">{formatKcal(item.calories)}</p>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      <div className="mt-4 grid grid-cols-1 gap-2">
+        <Button size="xl" onClick={onEdit}>
+          Editar prato
+        </Button>
+        {meal.youtubeUrl ? (
+          <Button variant="secondary" onClick={onVideo}>
+            Como preparar
+          </Button>
+        ) : null}
+      </div>
+    </>
   )
 }
