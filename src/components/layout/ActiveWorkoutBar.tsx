@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { useSession } from '@/hooks/useSession'
 import { workoutService, MAX_WORKOUT_DURATION_MS } from '@/services/workoutService'
 import { useAppStore } from '@/store/appStore'
-import { loadLocalSession } from '@/utils/localSession'
+import { clearLocalSession, loadLocalSession } from '@/utils/localSession'
 
 export function ActiveWorkoutBar() {
   const { user, activeProfile } = useSession()
@@ -24,16 +24,58 @@ export function ActiveWorkoutBar() {
         await workoutService.expireStaleOpenSessions({ user, profile: activeProfile })
       }
       if (cancelled) return
+
       const local = loadLocalSession(activeProfile.id)
-      if (local && !local.session.completed && Date.now() - local.session.startedAt < MAX_WORKOUT_DURATION_MS) {
-        setMinimizedWorkout({ id: local.session.id, name: local.session.templateName })
-        return
+      if (local?.session.completed) {
+        clearLocalSession(activeProfile.id)
       }
-      const open = await workoutService.findActiveSession(activeProfile.id)
+
+      let open = null as Awaited<ReturnType<typeof workoutService.findActiveSession>>
+      let cloudOk = false
+      try {
+        open = await workoutService.findActiveSession(activeProfile.id)
+        cloudOk = true
+      } catch {
+        cloudOk = false
+      }
       if (cancelled) return
+
       if (open) {
         setMinimizedWorkout({ id: open.id, name: open.templateName })
         return
+      }
+
+      const localFresh =
+        local &&
+        !local.session.completed &&
+        Date.now() - local.session.startedAt < MAX_WORKOUT_DURATION_MS
+
+      if (localFresh && cloudOk) {
+        // Nuvem sem sessão aberta → snapshot local é fantasma (ex.: cancelou/finalizou e o app fechou no meio).
+        try {
+          const bundle = await workoutService.loadSessionBundle(local.session.id)
+          if (!bundle || bundle.session.completed) {
+            clearLocalSession(activeProfile.id)
+            setMinimizedWorkout(null)
+            return
+          }
+          setMinimizedWorkout({ id: local.session.id, name: local.session.templateName })
+          return
+        } catch {
+          clearLocalSession(activeProfile.id)
+          setMinimizedWorkout(null)
+          return
+        }
+      }
+
+      if (localFresh && !cloudOk) {
+        // Offline: confia no aparelho.
+        setMinimizedWorkout({ id: local.session.id, name: local.session.templateName })
+        return
+      }
+
+      if (local && !local.session.completed) {
+        clearLocalSession(activeProfile.id)
       }
       setMinimizedWorkout(null)
     })()

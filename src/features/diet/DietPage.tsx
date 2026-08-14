@@ -17,8 +17,8 @@ import { Link } from 'react-router-dom'
 type MealWithItems = DietMeal & { items: DietMealItem[] }
 
 const SHORT_MEAL_LABELS: Record<DietMenuCategory, string> = {
-  breakfast: 'Café',
-  morning_snack: 'Manhã',
+  breakfast: 'Café da manhã',
+  morning_snack: 'Lanche da manhã',
   lunch: 'Almoço',
   afternoon_snack: 'Tarde',
   dinner: 'Jantar',

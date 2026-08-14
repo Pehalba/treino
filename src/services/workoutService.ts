@@ -30,10 +30,21 @@ export const MAX_WORKOUT_DURATION_MS = 2.5 * 60 * 60 * 1000
 /** Evita cancelar um treino antes da criação no Firestore terminar (senão a gravação “ressuscita” a sessão). */
 const pendingSessionWrites = new Map<string, Promise<void>>()
 const expiringSessions = new Set<string>()
+/** Sessões em encerramento/cancelamento — ignora persistLocal para não “ressuscitar” no aparelho. */
+const sealedSessionIds = new Set<string>()
 
 function isStaleOpenSession(session: WorkoutSession): boolean {
   if (session.completed) return false
   return Date.now() - session.startedAt >= MAX_WORKOUT_DURATION_MS
+}
+
+function sealSession(sessionId: string, profileId: string): void {
+  sealedSessionIds.add(sessionId)
+  clearLocalSession(profileId)
+}
+
+function unsealSession(sessionId: string): void {
+  sealedSessionIds.delete(sessionId)
 }
 
 export const workoutService = {
@@ -420,6 +431,9 @@ export const workoutService = {
     completedWithoutData?: boolean
     autoExpired?: boolean
   }): Promise<WorkoutSession> {
+    // Limpa o aparelho na hora — se o app fechar no meio da rede, não reabre como “em andamento”.
+    sealSession(params.session.id, params.profileId)
+
     const maxMs = MAX_WORKOUT_DURATION_MS
     const elapsedMs = Math.max(0, Date.now() - params.session.startedAt)
     const finishedAt = params.autoExpired
@@ -445,8 +459,14 @@ export const workoutService = {
           : note
         : params.session.notes,
     }
-    await workoutRepository.saveSession(updated)
-    clearLocalSession(params.profileId)
+    try {
+      await workoutRepository.saveSession(updated)
+    } catch (err) {
+      unsealSession(params.session.id)
+      throw err
+    } finally {
+      clearLocalSession(params.profileId)
+    }
     return updated
   },
 
@@ -565,6 +585,9 @@ export const workoutService = {
     exercises: WorkoutSessionExercise[]
     sets: ExerciseSet[]
   }): Promise<void> {
+    // Some imediatamente do aparelho (X / cancelar); a limpeza na nuvem segue em seguida.
+    sealSession(params.session.id, params.profileId)
+
     const pending = pendingSessionWrites.get(params.session.id)
     if (pending) {
       try {
@@ -577,17 +600,24 @@ export const workoutService = {
     const records = (await workoutRepository.listRecords(params.profileId)).filter(
       (record) => record.sessionId === params.session.id,
     )
-    await deleteAll([
-      ...params.sets.map((item) => ({ collection: 'exerciseSets', id: item.id })),
-      ...params.exercises.map((item) => ({ collection: 'workoutSessionExercises', id: item.id })),
-      ...records.map((item) => ({ collection: 'personalRecords', id: item.id })),
-      { collection: 'workoutSessions', id: params.session.id },
-    ])
-    clearLocalSession(params.profileId)
-    pendingSessionWrites.delete(params.session.id)
+    try {
+      await deleteAll([
+        ...params.sets.map((item) => ({ collection: 'exerciseSets', id: item.id })),
+        ...params.exercises.map((item) => ({ collection: 'workoutSessionExercises', id: item.id })),
+        ...records.map((item) => ({ collection: 'personalRecords', id: item.id })),
+        { collection: 'workoutSessions', id: params.session.id },
+      ])
+    } catch (err) {
+      unsealSession(params.session.id)
+      throw err
+    } finally {
+      clearLocalSession(params.profileId)
+      pendingSessionWrites.delete(params.session.id)
+    }
   },
 
   persistLocal(snapshot: LocalWorkoutSnapshot): void {
+    if (sealedSessionIds.has(snapshot.session.id) || snapshot.session.completed) return
     saveLocalSession(snapshot.session.profileId, snapshot)
   },
 

@@ -26,7 +26,7 @@ import type {
 import { PROFILE_GOAL_LABELS } from '@/types'
 import { formatDate, formatDuration, todayKey, weekStart } from '@/utils/dates'
 import { formatGrams, formatKcal, formatKg, parseLocaleNumber } from '@/utils/format'
-import { loadLocalSession } from '@/utils/localSession'
+import { clearLocalSession, loadLocalSession } from '@/utils/localSession'
 import { withTimeout } from '@/utils/withTimeout'
 import { cn } from '@/utils/cn'
 import {
@@ -198,11 +198,34 @@ export function HomePage() {
   }, [activeProfile?.id, user?.id, reloadToken])
 
   const local = activeProfile ? loadLocalSession(activeProfile.id) : null
-  const active =
-    sessions.find((s) => !s.completed && Date.now() - s.startedAt < MAX_WORKOUT_DURATION_MS) ??
-    (local && !local.session.completed && Date.now() - local.session.startedAt < MAX_WORKOUT_DURATION_MS
+  const activeFromCloud = sessions.find(
+    (s) => !s.completed && Date.now() - s.startedAt < MAX_WORKOUT_DURATION_MS,
+  )
+  const localFresh =
+    local &&
+    !local.session.completed &&
+    Date.now() - local.session.startedAt < MAX_WORKOUT_DURATION_MS
       ? local.session
-      : null)
+      : null
+  // Enquanto carrega, pode usar o local; depois confia na nuvem (evita “Continuar” fantasma).
+  const active = activeFromCloud ?? (loading || error ? localFresh : null)
+
+  useEffect(() => {
+    if (loading || error || !activeProfile || !local || local.session.completed) return
+    if (activeFromCloud) return
+    const match = sessions.find((s) => s.id === local.session.id)
+    if (match?.completed || !match) {
+      clearLocalSession(activeProfile.id)
+    }
+  }, [
+    loading,
+    error,
+    activeProfile?.id,
+    activeFromCloud?.id,
+    local?.session.id,
+    local?.session.completed,
+    sessions,
+  ])
   const todayLogs = useMemo(() => logs.filter((item) => item.date === todayKey()), [logs])
   const totals = useMemo(() => nutritionService.totals(todayLogs), [todayLogs])
   const weekSessions = sessions.filter((s) => s.completed && s.startedAt >= weekStart().getTime())

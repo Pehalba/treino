@@ -482,6 +482,12 @@ export function ExerciseDone({
   )
 }
 
+export type WorkoutSummaryExercise = {
+  name: string
+  status: string
+  sets: Array<{ setNumber: number; weight: number; reps: number }>
+}
+
 export function WorkoutSummary({
   name,
   duration,
@@ -492,6 +498,9 @@ export function WorkoutSummary({
   records,
   volume,
   withoutData = false,
+  historyMode = false,
+  dateLabel,
+  exerciseDetails = [],
   onHome,
 }: {
   name: string
@@ -503,17 +512,26 @@ export function WorkoutSummary({
   records: number
   volume: number
   withoutData?: boolean
+  historyMode?: boolean
+  dateLabel?: string
+  exerciseDetails?: WorkoutSummaryExercise[]
   onHome: () => void
 }) {
   return (
-    <div className="mx-auto flex min-h-svh max-w-lg flex-col justify-center px-5 py-10 text-center">
-      <p className="font-display text-4xl">Treino concluído 🎉</p>
-      <p className="mt-2 text-xl text-muted">{name}</p>
-      {withoutData ? (
-        <p className="mt-3 text-sm text-muted">
-          Concluído sem registrar — cargas iguais à última vez.
+    <div className="mx-auto flex min-h-svh max-w-lg flex-col px-5 py-10 pb-[max(2.5rem,env(safe-area-inset-bottom))]">
+      <div className={cn('text-center', historyMode ? '' : 'pt-4')}>
+        <p className="font-display text-3xl sm:text-4xl">
+          {historyMode ? 'Detalhe do treino' : 'Treino concluído 🎉'}
         </p>
-      ) : null}
+        <p className="mt-2 text-xl text-muted">{name}</p>
+        {dateLabel ? <p className="mt-1 text-sm text-muted">{dateLabel}</p> : null}
+        {withoutData ? (
+          <p className="mt-3 text-sm text-muted">
+            Concluído sem registrar — cargas iguais à última vez.
+          </p>
+        ) : null}
+      </div>
+
       <div className="mt-8 grid grid-cols-2 gap-3 text-left">
         <Stat label="Tempo" value={formatTimerSafe(duration)} />
         <Stat label="Exercícios" value={`${completed}/${total}`} />
@@ -522,14 +540,59 @@ export function WorkoutSummary({
         <Stat label="Recordes" value={String(records)} />
         <Stat label="Volume" value={`${formatNumber(volume, 0)} kg`} />
       </div>
+
       {records > 0 ? (
-        <p className="mt-4 text-sm font-semibold text-accent">🏆 {records} recorde(s) neste treino</p>
+        <p className="mt-4 text-center text-sm font-semibold text-accent">
+          🏆 {records} recorde(s) neste treino
+        </p>
       ) : null}
       {progressions > 0 ? (
-        <p className="mt-1 text-sm text-muted">📈 {progressions} progressão(ões) vs última vez</p>
+        <p className="mt-1 text-center text-sm text-muted">
+          📈 {progressions} progressão(ões) vs última vez
+        </p>
       ) : null}
+
+      {exerciseDetails.length > 0 ? (
+        <section className="mt-8 text-left">
+          <h2 className="font-display text-lg tracking-wide uppercase">Exercícios</h2>
+          <ul className="mt-3 space-y-3">
+            {exerciseDetails.map((ex, i) => (
+              <li key={`${ex.name}-${i}`} className="rounded-3xl bg-card p-4">
+                <div className="flex items-start justify-between gap-3">
+                  <p className="font-medium leading-snug">{ex.name}</p>
+                  <p className="shrink-0 text-xs text-muted">
+                    {ex.status === 'skipped'
+                      ? 'Pulado'
+                      : `${ex.sets.length} ${ex.sets.length === 1 ? 'série' : 'séries'}`}
+                  </p>
+                </div>
+                {ex.status === 'skipped' ? (
+                  <p className="mt-2 text-sm text-muted">Exercício não realizado neste treino.</p>
+                ) : ex.sets.length === 0 ? (
+                  <p className="mt-2 text-sm text-muted">Sem séries registradas.</p>
+                ) : (
+                  <ul className="mt-3 space-y-1.5">
+                    {ex.sets.map((s) => (
+                      <li
+                        key={s.setNumber}
+                        className="flex items-center justify-between gap-3 text-sm"
+                      >
+                        <span className="text-muted">Série {s.setNumber}</span>
+                        <span className="font-medium tabular-nums">
+                          {formatKg(s.weight)} · {s.reps} reps
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
+
       <Button className="mt-8 w-full" size="xl" onClick={onHome}>
-        Voltar ao início
+        {historyMode ? 'Voltar aos treinos' : 'Voltar ao início'}
       </Button>
     </div>
   )

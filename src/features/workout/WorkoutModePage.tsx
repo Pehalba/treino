@@ -32,7 +32,7 @@ import type {
   WorkoutSessionExercise,
 } from '@/types'
 import { EQUIPMENT_LABELS, MUSCLE_LABELS } from '@/types'
-import { formatTimer } from '@/utils/dates'
+import { formatDateLong, formatTimer } from '@/utils/dates'
 import { hapticSuccess, hapticRecord } from '@/utils/haptics'
 import { loadLocalSession } from '@/utils/localSession'
 import { pickNextExercise, withMuscle } from '@/utils/muscleOrder'
@@ -63,6 +63,7 @@ export function WorkoutModePage() {
   const [reps, setReps] = useState(8)
   const [doneSummary, setDoneSummary] = useState<ProgressionSummary | null>(null)
   const [finished, setFinished] = useState<WorkoutSession | null>(null)
+  const [closing, setClosing] = useState(false)
   const [videoOpen, setVideoOpen] = useState(false)
   const [imageOpen, setImageOpen] = useState(false)
   const [skipOpen, setSkipOpen] = useState(false)
@@ -90,7 +91,6 @@ export function WorkoutModePage() {
   const exercise = catalog.find((e) => e.id === current?.exerciseId)
   const currentSets = sets.filter((s) => s.sessionExerciseId === current?.id && s.completed).sort((a, b) => a.setNumber - b.setNumber)
   const nextSetNumber = (currentSets[currentSets.length - 1]?.setNumber ?? 0) + 1
-  const allDone = exercises.length > 0 && exercises.every((e) => e.status === 'completed' || e.status === 'skipped')
   const hasNextExercise =
     !!current &&
     exercises.some(
@@ -324,14 +324,21 @@ export function WorkoutModePage() {
   ) {
     if (!session || !activeProfile) return
     leavingRef.current = true
-    const updated = await workoutService.finishSession({
-      profileId: activeProfile.id,
-      session,
-      exercises: nextExercises,
-      sets: nextSets,
-    })
-    setFinished(updated)
+    setClosing(true)
     setMinimizedWorkout(null)
+    try {
+      const updated = await workoutService.finishSession({
+        profileId: activeProfile.id,
+        session,
+        exercises: nextExercises,
+        sets: nextSets,
+      })
+      setFinished(updated)
+    } catch (err) {
+      leavingRef.current = false
+      setClosing(false)
+      setError(err instanceof Error ? err.message : 'Não foi possível concluir o treino.')
+    }
   }
 
   /** Sai do exercício atual e vai pro próximo (ou encerra o treino) sem tela intermediária. */
@@ -350,7 +357,7 @@ export function WorkoutModePage() {
     )
     if (!next) {
       setExercises(nextExercises)
-      persistSnapshot(nextExercises, nextSets)
+      // Não grava snapshot incompleto antes do finish — evita “treino ainda rolando” ao reabrir.
       void finish(nextExercises, nextSets)
       return
     }
@@ -362,6 +369,7 @@ export function WorkoutModePage() {
     setExercises(moved)
     setCurrentId(next.id)
     persistSnapshot(moved, nextSets)
+    void workoutService.updateSessionExercise(completedId, { status: 'completed' })
     void workoutService.updateSessionExercise(next.id, { status: 'active' })
   }
 
@@ -532,6 +540,8 @@ export function WorkoutModePage() {
     if (!user || !session || !activeProfile) return
     setFinishingAsLast(true)
     leavingRef.current = true
+    setClosing(true)
+    setMinimizedWorkout(null)
     setActionError('')
     try {
       rest.skip()
@@ -546,10 +556,10 @@ export function WorkoutModePage() {
       setSets(result.sets)
       setFinished(result.session)
       setDoneSummary(null)
-      setMinimizedWorkout(null)
       setFinishAsLastOpen(false)
     } catch (err) {
       leavingRef.current = false
+      setClosing(false)
       setActionError(err instanceof Error ? err.message : 'Não foi possível concluir o treino.')
       setFinishingAsLast(false)
     }
@@ -605,6 +615,7 @@ export function WorkoutModePage() {
     if (!session || !activeProfile) return
     setCancelling(true)
     leavingRef.current = true
+    setMinimizedWorkout(null)
     try {
       rest.skip()
       await workoutService.discardSession({
@@ -613,7 +624,6 @@ export function WorkoutModePage() {
         exercises,
         sets,
       })
-      setMinimizedWorkout(null)
       setCancelOpen(false)
       setSession(null)
       setExercises([])
@@ -626,11 +636,14 @@ export function WorkoutModePage() {
     }
   }
 
-  if (loading || cancelling) {
+  if (loading || cancelling || closing) {
     return (
       <div className="min-h-svh bg-bg p-4">
         <Skeleton className="h-10 w-40" />
         <Skeleton className="mt-6 h-72" />
+        {closing ? (
+          <p className="mt-4 text-center text-sm text-muted">Encerrando treino…</p>
+        ) : null}
       </div>
     )
   }
@@ -643,8 +656,18 @@ export function WorkoutModePage() {
     )
   }
 
-  if (finished || session.completed || (allDone && !doneSummary)) {
+  if (finished || session.completed) {
     const done = finished ?? session
+    const historyMode = session.completed && !finished
+    const orderedExercises = [...exercises].sort((a, b) => a.order - b.order)
+    const exerciseDetails = orderedExercises.map((ex) => ({
+      name: ex.exerciseName || catalog.find((c) => c.id === ex.exerciseId)?.name || 'Exercício',
+      status: ex.status,
+      sets: sets
+        .filter((s) => s.sessionExerciseId === ex.id && s.completed)
+        .sort((a, b) => a.setNumber - b.setNumber)
+        .map((s) => ({ setNumber: s.setNumber, weight: s.weight, reps: s.reps })),
+    }))
     return (
       <WorkoutSummary
         name={done.templateName}
@@ -656,7 +679,10 @@ export function WorkoutModePage() {
         records={records}
         volume={done.totalVolume}
         withoutData={done.completedWithoutData === true}
-        onHome={() => navigate('/')}
+        historyMode={historyMode}
+        dateLabel={historyMode ? formatDateLong(done.startedAt) : undefined}
+        exerciseDetails={exerciseDetails}
+        onHome={() => navigate(historyMode ? '/treinos' : '/')}
       />
     )
   }
