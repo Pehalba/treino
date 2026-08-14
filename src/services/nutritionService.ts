@@ -3,13 +3,25 @@ import { presetForProfile, presetGoalsForProfile, DIET_PRESET_VERSION } from '@/
 import { dietEditorService } from '@/services/dietEditorService'
 import { profileService } from '@/services/profileService'
 import { useAppStore } from '@/store/appStore'
-import type { DietMeal, DietMealItem, DietPlan, FoodLog, MealCategory, Profile, UserRecord } from '@/types'
+import type {
+  DietMeal,
+  DietMealItem,
+  DietPlan,
+  DietSupplement,
+  DietSupplementKind,
+  FoodLog,
+  MealCategory,
+  Profile,
+  UserRecord,
+} from '@/types'
+import { DIET_SUPPLEMENT_LABELS } from '@/types'
 import {
   dietPresetInstalled,
   freshDietCache,
   markDietPresetInstalled,
   saveDietCache,
 } from '@/utils/dietCache'
+import { loadSupplementCache, saveSupplementCache } from '@/utils/supplementCache'
 import { todayKey } from '@/utils/dates'
 import { newId } from '@/utils/ids'
 
@@ -115,6 +127,67 @@ export const dietService = {
   },
 
   subscribePlans: nutritionRepository.subscribePlans,
+
+  async listSupplements(profileId: string): Promise<DietSupplement[]> {
+    const cached = loadSupplementCache(profileId)
+    try {
+      const items = await nutritionRepository.listSupplements(profileId)
+      saveSupplementCache(profileId, items)
+      return items
+    } catch (err) {
+      if (cached) return cached
+      throw err
+    }
+  },
+
+  async saveSupplement(params: {
+    profile: Profile
+    userId: string
+    kind: DietSupplementKind
+    existingId?: string
+    name: string
+    dosesPerDay: number
+    caloriesPerDose: number
+    proteinPerDose: number
+    carbsPerDose?: number
+    fatPerDose?: number
+  }): Promise<DietSupplement> {
+    const dosesPerDay = Math.max(0, params.dosesPerDay)
+    const caloriesPerDose = Math.max(0, params.caloriesPerDose)
+    const proteinPerDose = Math.max(0, params.proteinPerDose)
+    const carbsPerDose = Math.max(0, params.carbsPerDose ?? 0)
+    const fatPerDose = Math.max(0, params.fatPerDose ?? 0)
+    const name = params.name.trim() || DIET_SUPPLEMENT_LABELS[params.kind]
+
+    const existingList = await nutritionRepository.listSupplements(params.profile.id)
+    const existing =
+      (params.existingId ? existingList.find((item) => item.id === params.existingId) : undefined) ??
+      existingList.find((item) => item.kind === params.kind)
+
+    const item: DietSupplement = {
+      id: existing?.id || newId(),
+      profileId: params.profile.id,
+      householdId: params.profile.householdId,
+      kind: params.kind,
+      name,
+      dosesPerDay,
+      caloriesPerDose,
+      proteinPerDose,
+      carbsPerDose,
+      fatPerDose,
+      active: true,
+      archivedAt: null,
+      updatedAt: Date.now(),
+      updatedBy: params.userId,
+    }
+    await nutritionRepository.saveSupplement(item)
+    const all = [
+      ...existingList.filter((row) => row.id !== item.id && row.kind !== item.kind),
+      item,
+    ]
+    saveSupplementCache(params.profile.id, all)
+    return item
+  },
 }
 
 export const nutritionService = {
@@ -154,9 +227,21 @@ export const nutritionService = {
     profile: Profile
     meal: DietMeal & { items: DietMealItem[] }
     date?: string
+    /** Multiplicador por item (ex.: 2 = dois ovos no lugar de 1). */
+    itemMultipliers?: Record<string, number>
   }): Promise<FoodLog[]> {
     if (params.meal.items.length === 0) return []
-    const totals = params.meal.items.reduce(
+    const multipliers = params.itemMultipliers ?? {}
+    const scaled = params.meal.items.map((item) => {
+      const factor = Math.max(0, multipliers[item.id] ?? 1)
+      return {
+        calories: item.calories * factor,
+        protein: item.protein * factor,
+        carbs: item.carbs * factor,
+        fat: item.fat * factor,
+      }
+    })
+    const totals = scaled.reduce(
       (acc, item) => ({
         calories: acc.calories + item.calories,
         protein: acc.protein + item.protein,
@@ -165,11 +250,12 @@ export const nutritionService = {
       }),
       { calories: 0, protein: 0, carbs: 0, fat: 0 },
     )
+    const adjusted = Object.values(multipliers).some((value) => value !== 1)
     const log = await this.logFood({
       user: params.user,
       profile: params.profile,
       category: params.meal.category,
-      name: params.meal.name,
+      name: adjusted ? `${params.meal.name} (ajustado)` : params.meal.name,
       calories: totals.calories,
       protein: totals.protein,
       carbs: totals.carbs,

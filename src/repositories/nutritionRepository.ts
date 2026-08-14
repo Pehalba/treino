@@ -1,6 +1,6 @@
 import { where } from 'firebase/firestore'
-import { createDoc, listDocs, patchDoc, subscribeDocs } from '@/repositories/base'
-import type { DietMeal, DietMealItem, DietPlan, Food, FoodLog } from '@/types'
+import { createDoc, listDocs, patchDoc, subscribeDocs, upsertDoc } from '@/repositories/base'
+import type { DietMeal, DietMealItem, DietPlan, DietSupplement, Food, FoodLog } from '@/types'
 import type { Unsubscribe } from 'firebase/firestore'
 
 export const nutritionRepository = {
@@ -30,6 +30,12 @@ export const nutritionRepository = {
   saveMealItem: (item: DietMealItem) => createDoc('dietMealItems', item),
   updateMealItem: (id: string, data: Partial<DietMealItem> | Record<string, unknown>) =>
     patchDoc('dietMealItems', id, data),
+
+  listSupplements: async (profileId: string) =>
+    (await listDocs<DietSupplement>('dietSupplements', where('profileId', '==', profileId))).filter(
+      (item) => item.active !== false && !item.archivedAt,
+    ),
+  saveSupplement: (item: DietSupplement) => upsertDoc('dietSupplements', item),
 
   saveFood: (food: Food) => createDoc('foods', food),
   listFoods: (householdId: string) => listDocs<Food>('foods', where('householdId', '==', householdId)),

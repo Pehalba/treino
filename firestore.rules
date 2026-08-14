@@ -42,6 +42,7 @@ service cloud.firestore {
         'dietPlans',
         'dietMeals',
         'dietMealItems',
+        'dietSupplements',
         'foods',
         'foodLogs',
         'weightEntries',

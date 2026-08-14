@@ -4,6 +4,7 @@ import { Card } from '@/components/ui/Card'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { Input } from '@/components/ui/Input'
 import { Modal } from '@/components/ui/Modal'
+import { NumberStepper } from '@/components/ui/NumberStepper'
 import { ProgressBar, ProgressRing } from '@/components/ui/Progress'
 import { Skeleton } from '@/components/ui/Skeleton'
 import { Toast } from '@/components/ui/Toast'
@@ -31,6 +32,8 @@ export function CaloriesPage() {
   const [open, setOpen] = useState(false)
   const [pickerOpen, setPickerOpen] = useState(false)
   const [pickerCategory, setPickerCategory] = useState<DietMenuCategory | null>(null)
+  const [adjustMeal, setAdjustMeal] = useState<MealWithItems | null>(null)
+  const [multipliers, setMultipliers] = useState<Record<string, number>>({})
   const [category, setCategory] = useState<MealCategory>('lunch')
   const [name, setName] = useState('')
   const [calories, setCalories] = useState('')
@@ -83,14 +86,46 @@ export function CaloriesPage() {
   const goal = planGoal || activeProfile?.calorieGoal || 0
   const remaining = Math.max(0, goal - totals.calories)
 
-  async function registerMeal(meal: MealWithItems) {
-    if (!user || !activeProfile || meal.items.length === 0 || saving) return
-    setSaving(meal.id)
-    await nutritionService.logPlannedMeal({ user, profile: activeProfile, meal })
-    setSaving(null)
-    setPickerOpen(false)
-    setPickerCategory(null)
-    show('Refeição registrada ✓')
+  const adjustedTotals = useMemo(() => {
+    if (!adjustMeal) return { calories: 0, protein: 0, carbs: 0, fat: 0 }
+    return adjustMeal.items.reduce(
+      (acc, item) => {
+        const factor = multipliers[item.id] ?? 1
+        return {
+          calories: acc.calories + item.calories * factor,
+          protein: acc.protein + item.protein * factor,
+          carbs: acc.carbs + item.carbs * factor,
+          fat: acc.fat + item.fat * factor,
+        }
+      },
+      { calories: 0, protein: 0, carbs: 0, fat: 0 },
+    )
+  }, [adjustMeal, multipliers])
+
+  function openAdjust(meal: MealWithItems) {
+    const next: Record<string, number> = {}
+    for (const item of meal.items) next[item.id] = 1
+    setMultipliers(next)
+    setAdjustMeal(meal)
+  }
+
+  async function confirmAdjustedMeal() {
+    if (!user || !activeProfile || !adjustMeal || adjustMeal.items.length === 0 || saving) return
+    setSaving(adjustMeal.id)
+    try {
+      await nutritionService.logPlannedMeal({
+        user,
+        profile: activeProfile,
+        meal: adjustMeal,
+        itemMultipliers: multipliers,
+      })
+      setAdjustMeal(null)
+      setPickerOpen(false)
+      setPickerCategory(null)
+      show('Refeição registrada ✓')
+    } finally {
+      setSaving(null)
+    }
   }
 
   async function saveExtra() {
@@ -122,7 +157,7 @@ export function CaloriesPage() {
     <AppShell title="Calorias">
       <Toast message={message} />
       <p className="mb-4 text-sm text-muted">
-        Toque em Registrar, escolha a refeição e depois o prato. As calorias já vêm da dieta.
+        Toque em Registrar, escolha o prato e ajuste as porções se comeu diferente da dieta.
       </p>
       {loading ? (
         <Skeleton className="h-48" />
@@ -187,7 +222,7 @@ export function CaloriesPage() {
       </div>
 
       <Modal
-        open={pickerOpen}
+        open={pickerOpen && !adjustMeal}
         onClose={() => {
           setPickerOpen(false)
           setPickerCategory(null)
@@ -217,8 +252,8 @@ export function CaloriesPage() {
                             Como preparar
                           </Button>
                         ) : null}
-                        <Button size="xl" disabled={Boolean(saving)} onClick={() => void registerMeal(meal)}>
-                          {saving === meal.id ? 'Registrando…' : 'Registrar este prato'}
+                        <Button size="xl" disabled={Boolean(saving)} onClick={() => openAdjust(meal)}>
+                          Registrar este prato
                         </Button>
                       </div>
                     </div>
@@ -249,6 +284,72 @@ export function CaloriesPage() {
             })}
           </div>
         )}
+      </Modal>
+
+      <Modal
+        open={Boolean(adjustMeal)}
+        onClose={() => !saving && setAdjustMeal(null)}
+        title={adjustMeal?.name || 'Ajustar porções'}
+      >
+        {adjustMeal ? (
+          <>
+            <p className="mb-4 text-sm text-muted">
+              1,0 = porção da dieta. Ex.: ovo em 2,0 registra dois ovos e recalcula as calorias.
+            </p>
+            <div className="space-y-4">
+              {adjustMeal.items.map((item) => {
+                const factor = multipliers[item.id] ?? 1
+                return (
+                  <div key={item.id} className="rounded-2xl bg-card2 p-3">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="font-medium">{item.foodName}</p>
+                        <p className="mt-0.5 text-sm text-muted">{item.quantityLabel || 'Porção da dieta'}</p>
+                      </div>
+                      <p className="shrink-0 text-sm font-semibold tabular-nums">
+                        {formatKcal(item.calories * factor)}
+                      </p>
+                    </div>
+                    <div className="mt-3">
+                      <NumberStepper
+                        compact
+                        value={factor}
+                        step={0.5}
+                        min={0}
+                        suffix="×"
+                        onChange={(value) =>
+                          setMultipliers((prev) => ({
+                            ...prev,
+                            [item.id]: Math.round(value * 2) / 2,
+                          }))
+                        }
+                      />
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+
+            <div className="mt-5 rounded-2xl bg-card2 p-4">
+              <p className="text-xs tracking-wide text-muted uppercase">Total a registrar</p>
+              <p className="mt-1 font-display text-3xl text-accent">{Math.round(adjustedTotals.calories)}</p>
+              <p className="text-sm text-muted">kcal</p>
+              <p className="mt-2 text-sm text-muted">
+                Prot {formatGrams(adjustedTotals.protein)} · Carbo {formatGrams(adjustedTotals.carbs)} · Gord{' '}
+                {formatGrams(adjustedTotals.fat)}
+              </p>
+            </div>
+
+            <div className="mt-4 grid grid-cols-1 gap-2">
+              <Button size="xl" disabled={Boolean(saving)} onClick={() => void confirmAdjustedMeal()}>
+                {saving === adjustMeal.id ? 'Registrando…' : 'Confirmar registro'}
+              </Button>
+              <Button variant="secondary" disabled={Boolean(saving)} onClick={() => setAdjustMeal(null)}>
+                Voltar
+              </Button>
+            </div>
+          </>
+        ) : null}
       </Modal>
 
       <Modal open={open} onClose={() => setOpen(false)} title="Fora da dieta">

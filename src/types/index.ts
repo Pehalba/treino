@@ -364,6 +364,31 @@ export type DietMealItem = {
   updatedBy?: string
 }
 
+export const DIET_SUPPLEMENT_KINDS = ['protein', 'hypercaloric'] as const
+export type DietSupplementKind = (typeof DIET_SUPPLEMENT_KINDS)[number]
+
+export const DIET_SUPPLEMENT_LABELS: Record<DietSupplementKind, string> = {
+  protein: 'Proteína',
+  hypercaloric: 'Hipercalórico',
+}
+
+export type DietSupplement = {
+  id: string
+  profileId: string
+  householdId: string
+  kind: DietSupplementKind
+  name: string
+  dosesPerDay: number
+  caloriesPerDose: number
+  proteinPerDose: number
+  carbsPerDose: number
+  fatPerDose: number
+  active?: boolean
+  archivedAt?: number | null
+  updatedAt?: number
+  updatedBy?: string
+}
+
 export type Food = {
   id: string
   householdId: string
