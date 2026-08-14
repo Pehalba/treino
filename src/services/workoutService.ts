@@ -14,6 +14,7 @@ import type {
   WorkoutSession,
   WorkoutSessionExercise,
   WorkoutTemplate,
+  WorkoutTemplateExercise,
 } from '@/types'
 import { isLive } from '@/utils/audit'
 import { newId } from '@/utils/ids'
