@@ -51,7 +51,8 @@ export function formatTimer(totalSeconds: number): string {
 }
 
 export function weekStart(date = new Date()): Date {
-  return startOfWeek(date, { weekStartsOn: 1 })
+  // Semana começa no domingo — a meta semanal zera a cada domingo.
+  return startOfWeek(date, { weekStartsOn: 0 })
 }
 
 export function rangeToDates(

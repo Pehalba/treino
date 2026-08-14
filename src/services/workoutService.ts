@@ -311,6 +311,28 @@ export const workoutService = {
     return set
   },
 
+  async updateSet(params: {
+    set: ExerciseSet
+    weight: number
+    reps: number
+    profileId: string
+    exerciseId: string
+    snapshot: LocalWorkoutSnapshot
+  }): Promise<ExerciseSet> {
+    const weight = Math.max(0, params.weight)
+    const reps = Math.max(0, Math.round(params.reps))
+    const updated: ExerciseSet = {
+      ...params.set,
+      weight,
+      reps,
+    }
+    await workoutRepository.saveSet(updated)
+    const sets = params.snapshot.sets.map((item) => (item.id === updated.id ? updated : item))
+    this.persistLocal({ ...params.snapshot, sets, updatedAt: Date.now() })
+    saveLastLoad(params.profileId, params.exerciseId, { weight, reps })
+    return updated
+  },
+
   async completeExercise(params: {
     profile: Profile
     session: WorkoutSession

@@ -9,6 +9,7 @@ import {
   LastTime,
   OccupiedModal,
   ReplaceModal,
+  EditSetModal,
   SetForm,
   SkipModal,
   TimerDoneModal,
@@ -40,7 +41,7 @@ import { getLastLoad, saveLastLoad } from '@/utils/exerciseLoad'
 import { workingWeight } from '@/utils/volume'
 import { useAppStore } from '@/store/appStore'
 import { AnimatePresence, motion } from 'framer-motion'
-import { Minimize2, X } from 'lucide-react'
+import { Minimize2, Pencil, X } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 
@@ -76,6 +77,10 @@ export function WorkoutModePage() {
   const [finishExerciseOpen, setFinishExerciseOpen] = useState(false)
   const [finishingExercise, setFinishingExercise] = useState(false)
   const [actionError, setActionError] = useState('')
+  const [editingSet, setEditingSet] = useState<ExerciseSet | null>(null)
+  const [editWeight, setEditWeight] = useState(0)
+  const [editReps, setEditReps] = useState(0)
+  const [savingEdit, setSavingEdit] = useState(false)
   const [timerOpen, setTimerOpen] = useState(false)
   const [timerMinutes, setTimerMinutes] = useState(2)
   const setMinimizedWorkout = useAppStore((s) => s.setMinimizedWorkout)
@@ -87,6 +92,13 @@ export function WorkoutModePage() {
   const currentSets = sets.filter((s) => s.sessionExerciseId === current?.id && s.completed).sort((a, b) => a.setNumber - b.setNumber)
   const nextSetNumber = (currentSets[currentSets.length - 1]?.setNumber ?? 0) + 1
   const allDone = exercises.length > 0 && exercises.every((e) => e.status === 'completed' || e.status === 'skipped')
+  const hasNextExercise =
+    !!current &&
+    exercises.some(
+      (e) =>
+        e.id !== current.id &&
+        (e.status === 'pending' || e.status === 'active' || e.status === 'deferred'),
+    )
   const timerSeconds = activeProfile?.timerSeconds && activeProfile.timerSeconds > 0 ? activeProfile.timerSeconds : 120
 
   useEffect(() => {
@@ -299,6 +311,61 @@ export function WorkoutModePage() {
     })
   }
 
+  function trackSummary(summary: ProgressionSummary) {
+    if (summary.kind !== 'none' && summary.kind !== 'first') setProgressions((v) => v + 1)
+    if (summary.isRecord) {
+      setRecords((v) => v + 1)
+      hapticRecord()
+    }
+  }
+
+  async function finish(
+    nextExercises: WorkoutSessionExercise[] = exercises,
+    nextSets: ExerciseSet[] = sets,
+  ) {
+    if (!session || !activeProfile) return
+    leavingRef.current = true
+    const updated = await workoutService.finishSession({
+      profileId: activeProfile.id,
+      session,
+      exercises: nextExercises,
+      sets: nextSets,
+    })
+    setFinished(updated)
+    setMinimizedWorkout(null)
+  }
+
+  /** Sai do exercício atual e vai pro próximo (ou encerra o treino) sem tela intermediária. */
+  function advanceAfterExercise(
+    completedId: string,
+    nextExercises: WorkoutSessionExercise[],
+    nextSets: ExerciseSet[] = sets,
+  ) {
+    setDoneSummary(null)
+    const muscleByExerciseId = new Map(catalog.map((e) => [e.id, e.muscleGroup]))
+    const decorated = withMuscle(nextExercises, muscleByExerciseId)
+    const next = pickNextExercise(
+      decorated.map((e) => (e.id === completedId ? { ...e, status: 'completed' as const } : e)),
+      completedId,
+      false,
+    )
+    if (!next) {
+      setExercises(nextExercises)
+      persistSnapshot(nextExercises, nextSets)
+      void finish(nextExercises, nextSets)
+      return
+    }
+    const moved = nextExercises.map((e) => {
+      if (e.id === completedId) return { ...e, status: 'completed' as const }
+      if (e.id === next.id) return { ...e, status: 'active' as const }
+      return e
+    })
+    setExercises(moved)
+    setCurrentId(next.id)
+    persistSnapshot(moved, nextSets)
+    void workoutService.updateSessionExercise(next.id, { status: 'active' })
+  }
+
   async function completeSet() {
     if (!user || !activeProfile || !session || !current) return
     const set = await workoutService.completeSet({
@@ -319,19 +386,49 @@ export function WorkoutModePage() {
     saveLastLoad(activeProfile.id, current.exerciseId, { weight, reps })
 
     if (nextSetNumber >= current.sets) {
-      const summary = await workoutService.completeExercise({
-        profile: activeProfile,
-        session,
-        sessionExercise: current,
-        todaySets: nextSets.filter((s) => s.sessionExerciseId === current.id),
+      const completedId = current.id
+      const nextExercises = exercises.map((e) =>
+        e.id === completedId ? { ...e, status: 'completed' as const } : e,
+      )
+      advanceAfterExercise(completedId, nextExercises, nextSets)
+      void workoutService
+        .completeExercise({
+          profile: activeProfile,
+          session,
+          sessionExercise: current,
+          todaySets: nextSets.filter((s) => s.sessionExerciseId === completedId),
+        })
+        .then(trackSummary)
+        .catch((err) => console.error(err))
+    }
+  }
+
+  function openEditSet(set: ExerciseSet) {
+    setEditingSet(set)
+    setEditWeight(set.weight)
+    setEditReps(set.reps)
+  }
+
+  async function saveEditedSet() {
+    if (!activeProfile || !session || !current || !editingSet) return
+    setSavingEdit(true)
+    try {
+      const updated = await workoutService.updateSet({
+        set: editingSet,
+        weight: editWeight,
+        reps: editReps,
+        profileId: activeProfile.id,
+        exerciseId: current.exerciseId,
+        snapshot: { session, exercises, sets, currentExerciseId: currentId, updatedAt: Date.now() },
       })
-      setDoneSummary(summary)
-      if (summary.kind !== 'none' && summary.kind !== 'first') setProgressions((v) => v + 1)
-      if (summary.isRecord) {
-        setRecords((v) => v + 1)
-        hapticRecord()
-      }
-      setExercises((items) => items.map((e) => (e.id === current.id ? { ...e, status: 'completed' } : e)))
+      const nextSets = sets.map((item) => (item.id === updated.id ? updated : item))
+      setSets(nextSets)
+      persistSnapshot(exercises, nextSets)
+      setEditingSet(null)
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : 'Não foi possível editar a série.')
+    } finally {
+      setSavingEdit(false)
     }
   }
 
@@ -348,38 +445,29 @@ export function WorkoutModePage() {
     )
 
     if (completedCount > 0 && nextCount <= completedCount) {
-      const summary = await workoutService.completeExercise({
-        profile: activeProfile,
-        session,
-        sessionExercise: updated,
-        todaySets: currentSets,
-      })
-      setDoneSummary(summary)
-      if (summary.kind !== 'none' && summary.kind !== 'first') setProgressions((v) => v + 1)
-      if (summary.isRecord) {
-        setRecords((v) => v + 1)
-        hapticRecord()
-      }
-      setExercises((items) => items.map((e) => (e.id === current.id ? { ...e, status: 'completed', sets: nextCount } : e)))
+      const completedId = current.id
+      const nextExercises = exercises.map((e) =>
+        e.id === completedId ? { ...e, status: 'completed' as const, sets: nextCount } : e,
+      )
+      advanceAfterExercise(completedId, nextExercises, currentSets)
+      void workoutService
+        .completeExercise({
+          profile: activeProfile,
+          session,
+          sessionExercise: updated,
+          todaySets: currentSets,
+        })
+        .then(trackSummary)
+        .catch((err) => console.error(err))
     }
   }
 
   function goNext() {
     if (!current) return
-    const muscleByExerciseId = new Map(catalog.map((e) => [e.id, e.muscleGroup]))
-    const decorated = withMuscle(exercises, muscleByExerciseId)
-    const next = pickNextExercise(
-      decorated.map((e) => (e.id === current.id ? { ...e, status: 'completed' } : e)),
-      current.id,
-      false,
+    const nextExercises = exercises.map((e) =>
+      e.id === current.id ? { ...e, status: 'completed' as const } : e,
     )
-    setDoneSummary(null)
-    if (!next) {
-      void finish()
-      return
-    }
-    setCurrentId(next.id)
-    void workoutService.updateSessionExercise(next.id, { status: 'active' })
+    advanceAfterExercise(current.id, nextExercises, sets)
   }
 
   async function applySkip(reason: SkipReason) {
@@ -441,19 +529,6 @@ export function WorkoutModePage() {
     setOccupiedOpen(false)
   }
 
-  async function finish() {
-    if (!session || !activeProfile) return
-    leavingRef.current = true
-    const updated = await workoutService.finishSession({
-      profileId: activeProfile.id,
-      session,
-      exercises,
-      sets,
-    })
-    setFinished(updated)
-    setMinimizedWorkout(null)
-  }
-
   async function finishAsLastTime() {
     if (!user || !session || !activeProfile) return
     setFinishingAsLast(true)
@@ -498,20 +573,26 @@ export function WorkoutModePage() {
       setExercises(nextExercises)
       setSets(result.sets)
       persistSnapshot(nextExercises, result.sets)
-      setDoneSummary({
-        kind: 'none',
-        message: 'Concluído com cargas da última vez.',
-        targetHit: false,
-        isRecord: false,
-        recordTypes: [],
-      })
       setFinishExerciseOpen(false)
       setFinishingExercise(false)
       hapticSuccess()
+      advanceAfterExercise(current.id, nextExercises, result.sets)
     } catch (err) {
       setActionError(err instanceof Error ? err.message : 'Não foi possível concluir o exercício.')
       setFinishingExercise(false)
     }
+  }
+
+  function reopenCompletedExercise(exercise: WorkoutSessionExercise) {
+    if (exercise.status !== 'completed') return
+    setCurrentId(exercise.id)
+    setDoneSummary({
+      kind: 'none',
+      message: 'Exercício já concluído — você pode editar as séries.',
+      targetHit: false,
+      isRecord: false,
+      recordTypes: [],
+    })
   }
 
   function minimize() {
@@ -615,22 +696,36 @@ export function WorkoutModePage() {
           <p className="mt-1 text-sm">
             Exercício {index + 1} de {exercises.length}
           </p>
-          <div className="mt-2 flex gap-1">
-            {exercises.map((e) => (
-              <span
-                key={e.id}
-                className={
-                  e.status === 'completed'
-                    ? 'h-2.5 w-2.5 rounded-full bg-accent'
-                    : e.status === 'deferred'
-                      ? 'h-2.5 w-2.5 rounded-full bg-warn'
-                      : e.id === current.id
-                        ? 'h-2.5 w-2.5 rounded-full bg-ink'
-                        : 'h-2.5 w-2.5 rounded-full bg-card2'
-                }
-              />
-            ))}
+          <div className="mt-2 flex flex-wrap gap-1">
+            {exercises.map((e, i) => {
+              const done = e.status === 'completed'
+              const active = e.id === current.id
+              return (
+                <button
+                  key={e.id}
+                  type="button"
+                  disabled={!done && !active}
+                  title={done ? `Revisar exercício ${i + 1}` : `Exercício ${i + 1}`}
+                  aria-label={
+                    done ? `Editar séries do exercício ${i + 1}` : `Exercício ${i + 1}`
+                  }
+                  onClick={() => {
+                    if (done) reopenCompletedExercise(e)
+                  }}
+                  className={
+                    done
+                      ? 'h-2.5 w-2.5 rounded-full bg-accent'
+                      : e.status === 'deferred'
+                        ? 'h-2.5 w-2.5 rounded-full bg-warn'
+                        : active
+                          ? 'h-2.5 w-2.5 rounded-full bg-ink'
+                          : 'h-2.5 w-2.5 rounded-full bg-card2'
+                  }
+                />
+              )
+            })}
           </div>
+          <p className="mt-2 text-[11px] text-muted">Pontinho verde = exercício feito (toque para editar)</p>
         </div>
         <div className="flex flex-col items-end gap-2">
           <div className="flex items-center gap-2">
@@ -701,9 +796,22 @@ export function WorkoutModePage() {
               />
               <div className="mt-4 space-y-2">
                 {currentSets.map((s) => (
-                  <p key={s.id} className="rounded-2xl bg-card2 px-4 py-3 text-sm">
-                    Série {s.setNumber} · {s.weight} kg · {s.reps} reps
-                  </p>
+                  <div
+                    key={s.id}
+                    className="flex items-center justify-between gap-3 rounded-2xl bg-card2 px-4 py-3 text-sm"
+                  >
+                    <p>
+                      Série {s.setNumber} · {s.weight} kg · {s.reps} reps
+                    </p>
+                    <button
+                      type="button"
+                      className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-card text-muted"
+                      aria-label={`Editar série ${s.setNumber}`}
+                      onClick={() => openEditSet(s)}
+                    >
+                      <Pencil size={16} />
+                    </button>
+                  </div>
                 ))}
               </div>
               <SetForm
@@ -728,6 +836,8 @@ export function WorkoutModePage() {
               message={doneSummary.message}
               targetHit={doneSummary.targetHit}
               isRecord={doneSummary.isRecord}
+              isLast={!hasNextExercise}
+              onEditSet={openEditSet}
               onNext={goNext}
             />
           )}
@@ -751,6 +861,18 @@ export function WorkoutModePage() {
         open={imageOpen}
         onClose={() => setImageOpen(false)}
         title={exerciseName}
+      />
+      <EditSetModal
+        open={Boolean(editingSet)}
+        setNumber={editingSet?.setNumber ?? 1}
+        weight={editWeight}
+        reps={editReps}
+        increment={weightIncrement}
+        saving={savingEdit}
+        onWeight={setEditWeight}
+        onReps={setEditReps}
+        onClose={() => !savingEdit && setEditingSet(null)}
+        onSave={() => void saveEditedSet()}
       />
       <TimerEditModal
         open={timerOpen}

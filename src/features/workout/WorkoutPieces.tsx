@@ -7,6 +7,7 @@ import { formatKg, formatNumber } from '@/utils/format'
 import { youtubeEmbedUrl, youtubeWatchUrl } from '@/utils/ids'
 import { repsPattern, workingWeight } from '@/utils/volume'
 import { cn } from '@/utils/cn'
+import { Pencil } from 'lucide-react'
 
 export function VideoModal({
   url,
@@ -111,23 +112,23 @@ export function SetForm({
   onComplete: () => void
 }) {
   return (
-    <section className="mt-5 rounded-3xl bg-card p-4">
-      <h3 className="font-display text-lg">
+    <section className="mt-4 rounded-2xl bg-card p-3 sm:mt-5 sm:rounded-3xl sm:p-4">
+      <h3 className="font-display text-base sm:text-lg">
         Série {setNumber} de {plannedSets}
       </h3>
-      <p className="mt-3 text-sm text-muted">Carga</p>
-      <NumberStepper value={weight} onChange={onWeight} step={increment} suffix="kg" />
-      <p className="mt-4 text-sm text-muted">Repetições</p>
-      <NumberStepper value={reps} onChange={onReps} step={1} min={0} />
-      <p className="mt-4 text-sm text-muted">Quantas séries vou fazer</p>
-      <div className="mt-2 grid grid-cols-4 gap-2">
+      <p className="mt-2 text-xs text-muted sm:mt-3 sm:text-sm">Carga</p>
+      <NumberStepper compact value={weight} onChange={onWeight} step={increment} suffix="kg" />
+      <p className="mt-3 text-xs text-muted sm:mt-4 sm:text-sm">Repetições</p>
+      <NumberStepper compact value={reps} onChange={onReps} step={1} min={0} />
+      <p className="mt-3 text-xs text-muted sm:mt-4 sm:text-sm">Quantas séries vou fazer</p>
+      <div className="mt-1.5 grid grid-cols-4 gap-1.5 sm:mt-2 sm:gap-2">
         {[1, 2, 3, 4].map((value) => (
           <button
             key={value}
             type="button"
             onClick={() => onPlannedSets(value)}
             className={cn(
-              'min-h-12 rounded-2xl text-sm font-semibold',
+              'min-h-10 rounded-xl text-sm font-semibold sm:min-h-12 sm:rounded-2xl',
               plannedSets === value
                 ? 'bg-accent font-bold text-[#08090B]'
                 : 'bg-card2 text-ink',
@@ -137,10 +138,52 @@ export function SetForm({
           </button>
         ))}
       </div>
-      <Button className="mt-5 w-full" size="xl" onClick={onComplete}>
+      <Button className="mt-3 w-full sm:mt-5" size="lg" onClick={onComplete}>
         ✓ Concluir série
       </Button>
     </section>
+  )
+}
+
+export function EditSetModal({
+  open,
+  setNumber,
+  weight,
+  reps,
+  increment,
+  saving = false,
+  onWeight,
+  onReps,
+  onClose,
+  onSave,
+}: {
+  open: boolean
+  setNumber: number
+  weight: number
+  reps: number
+  increment: number
+  saving?: boolean
+  onWeight: (v: number) => void
+  onReps: (v: number) => void
+  onClose: () => void
+  onSave: () => void
+}) {
+  return (
+    <Modal open={open} onClose={onClose} title={`Editar série ${setNumber}`}>
+      <p className="text-sm text-muted">Corrige o peso ou as reps se anotou errado.</p>
+      <p className="mt-3 text-xs text-muted sm:mt-4 sm:text-sm">Carga</p>
+      <NumberStepper compact value={weight} onChange={onWeight} step={increment} suffix="kg" />
+      <p className="mt-3 text-xs text-muted sm:mt-4 sm:text-sm">Repetições</p>
+      <NumberStepper compact value={reps} onChange={onReps} step={1} min={0} />
+      <div className="mt-5 grid grid-cols-2 gap-3">
+        <Button variant="secondary" onClick={onClose} disabled={saving}>
+          Cancelar
+        </Button>
+        <Button onClick={onSave} disabled={saving}>
+          {saving ? 'Salvando…' : 'Salvar'}
+        </Button>
+      </div>
+    </Modal>
   )
 }
 
@@ -367,6 +410,8 @@ export function ExerciseDone({
   message,
   targetHit,
   isRecord,
+  isLast = false,
+  onEditSet,
   onNext,
 }: {
   today: ExerciseSet[]
@@ -374,6 +419,8 @@ export function ExerciseDone({
   message: string
   targetHit: boolean
   isRecord: boolean
+  isLast?: boolean
+  onEditSet?: (set: ExerciseSet) => void
   onNext: () => void
 }) {
   return (
@@ -399,9 +446,37 @@ export function ExerciseDone({
           <p>{previous.length ? repsPattern(previous) : '—'}</p>
         </div>
       </div>
+      {today.length > 0 ? (
+        <div className="mt-4 space-y-2">
+          <p className="text-sm text-muted">Séries de hoje — toque no lápis para corrigir</p>
+          {today
+            .slice()
+            .sort((a, b) => a.setNumber - b.setNumber)
+            .map((s) => (
+              <div
+                key={s.id}
+                className="flex items-center justify-between gap-3 rounded-2xl bg-card2 px-4 py-3 text-sm"
+              >
+                <p>
+                  Série {s.setNumber} · {s.weight} kg · {s.reps} reps
+                </p>
+                {onEditSet ? (
+                  <button
+                    type="button"
+                    className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-card text-muted"
+                    aria-label={`Editar série ${s.setNumber}`}
+                    onClick={() => onEditSet(s)}
+                  >
+                    <Pencil size={16} />
+                  </button>
+                ) : null}
+              </div>
+            ))}
+        </div>
+      ) : null}
       <p className="mt-4 font-medium text-accent">📈 {message}</p>
       <Button className="mt-5 w-full" size="xl" onClick={onNext}>
-        Próximo exercício →
+        {isLast ? 'Finalizar treino ✓' : 'Próximo exercício →'}
       </Button>
     </section>
   )
@@ -447,6 +522,12 @@ export function WorkoutSummary({
         <Stat label="Recordes" value={String(records)} />
         <Stat label="Volume" value={`${formatNumber(volume, 0)} kg`} />
       </div>
+      {records > 0 ? (
+        <p className="mt-4 text-sm font-semibold text-accent">🏆 {records} recorde(s) neste treino</p>
+      ) : null}
+      {progressions > 0 ? (
+        <p className="mt-1 text-sm text-muted">📈 {progressions} progressão(ões) vs última vez</p>
+      ) : null}
       <Button className="mt-8 w-full" size="xl" onClick={onHome}>
         Voltar ao início
       </Button>

@@ -6,10 +6,13 @@ export function pickNextExercise<T extends { id: string; status: string; muscleG
   preferDifferentMuscle: boolean,
 ): T | null {
   const current = exercises.find((e) => e.id === currentId)
-  if (!current) return exercises.find((e) => e.status !== 'completed') ?? null
+  const stillOpen = (status: string) =>
+    status === 'pending' || status === 'active' || status === 'deferred'
+
+  if (!current) return exercises.find((e) => stillOpen(e.status)) ?? null
 
   const incomplete = exercises
-    .filter((e) => e.id !== currentId && e.status !== 'completed')
+    .filter((e) => e.id !== currentId && stillOpen(e.status))
     .sort((a, b) => a.order - b.order)
 
   if (incomplete.length === 0) return null
