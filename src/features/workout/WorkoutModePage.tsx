@@ -6,7 +6,6 @@ import { Skeleton } from '@/components/ui/Skeleton'
 import {
   ExerciseDone,
   ExerciseTimer,
-  LastTime,
   OccupiedModal,
   ReplaceModal,
   EditSetModal,
@@ -782,9 +781,6 @@ export function WorkoutModePage() {
 
           {!doneSummary ? (
             <>
-              <div className="mt-6">
-                <LastTime sets={lastSets} />
-              </div>
               <ExerciseTimer
                 durationSeconds={timerSeconds}
                 remaining={rest.remaining}

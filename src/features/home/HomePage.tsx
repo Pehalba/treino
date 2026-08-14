@@ -497,7 +497,6 @@ export function HomePage() {
       <section className="pb-6">
         <div className="flex items-start justify-between gap-3">
           <div>
-            <p className="text-sm text-muted">Olá</p>
             <h1 className="font-display text-3xl font-semibold">Olá, {activeProfile?.name ?? user?.displayName} 👋</h1>
             <p className="mt-1 text-muted">Escolha o treino e comece agora.</p>
           </div>
