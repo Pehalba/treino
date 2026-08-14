@@ -14,7 +14,7 @@ import { dashboardService } from '@/services/dashboardService'
 import { nutritionService } from '@/services/nutritionService'
 import { profileService } from '@/services/profileService'
 import { weightService } from '@/services/weightService'
-import { workoutService } from '@/services/workoutService'
+import { workoutService, MAX_WORKOUT_DURATION_MS } from '@/services/workoutService'
 import type {
   DashboardWidgetId,
   FoodLog,
@@ -27,6 +27,7 @@ import { PROFILE_GOAL_LABELS } from '@/types'
 import { formatDate, formatDuration, todayKey, weekStart } from '@/utils/dates'
 import { formatGrams, formatKcal, formatKg, parseLocaleNumber } from '@/utils/format'
 import { loadLocalSession } from '@/utils/localSession'
+import { withTimeout } from '@/utils/withTimeout'
 import { cn } from '@/utils/cn'
 import {
   Activity,
@@ -142,19 +143,43 @@ export function HomePage() {
     void (async () => {
       try {
         const [{ templates, sessions }, prefs] = await Promise.all([
-          workoutService.getHomeBundle(profileId, householdId),
-          dashboardService.get(profileId),
+          withTimeout(workoutService.getHomeBundle(profileId, householdId), 8000, 'home'),
+          withTimeout(dashboardService.get(profileId), 4000, 'painel').catch(() => dashboardService.defaults()),
         ])
         if (!alive) return
-        setTemplates(templates)
-        setSessions(sessions)
-        setWidgets(prefs)
-        setLoading(false)
+        if (user) {
+          const closed = await workoutService.expireStaleOpenSessions({ user, profile: activeProfile })
+          if (closed.length > 0) {
+            const refreshed = await withTimeout(
+              workoutService.getHomeBundle(profileId, householdId),
+              8000,
+              'home',
+            ).catch(() => null)
+            if (!alive) return
+            setTemplates(refreshed?.templates ?? templates)
+            setSessions(refreshed?.sessions ?? sessions.map((item) => {
+              const done = closed.find((row) => row.id === item.id)
+              return done ?? item
+            }))
+            setWidgets(prefs)
+            setLoading(false)
+          } else {
+            setTemplates(templates)
+            setSessions(sessions)
+            setWidgets(prefs)
+            setLoading(false)
+          }
+        } else {
+          setTemplates(templates)
+          setSessions(sessions)
+          setWidgets(prefs)
+          setLoading(false)
+        }
 
         const [food, w, recs] = await Promise.all([
-          nutritionService.listLogsSince(profileId, todayKey(weekStart())),
-          weightService.list(profileId),
-          workoutService.listRecords(profileId),
+          withTimeout(nutritionService.listLogsSince(profileId, todayKey(weekStart())), 6000, 'comida').catch(() => []),
+          withTimeout(weightService.list(profileId), 6000, 'peso').catch(() => []),
+          withTimeout(workoutService.listRecords(profileId), 6000, 'recordes').catch(() => []),
         ])
         if (!alive) return
         setLogs(food)
@@ -170,10 +195,14 @@ export function HomePage() {
     return () => {
       alive = false
     }
-  }, [activeProfile?.id, reloadToken])
+  }, [activeProfile?.id, user?.id, reloadToken])
 
   const local = activeProfile ? loadLocalSession(activeProfile.id) : null
-  const active = sessions.find((s) => !s.completed) ?? (local && !local.session.completed ? local.session : null)
+  const active =
+    sessions.find((s) => !s.completed && Date.now() - s.startedAt < MAX_WORKOUT_DURATION_MS) ??
+    (local && !local.session.completed && Date.now() - local.session.startedAt < MAX_WORKOUT_DURATION_MS
+      ? local.session
+      : null)
   const todayLogs = useMemo(() => logs.filter((item) => item.date === todayKey()), [logs])
   const totals = useMemo(() => nutritionService.totals(todayLogs), [todayLogs])
   const weekSessions = sessions.filter((s) => s.completed && s.startedAt >= weekStart().getTime())

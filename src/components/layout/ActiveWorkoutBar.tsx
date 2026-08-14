@@ -1,12 +1,12 @@
 import { useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useSession } from '@/hooks/useSession'
-import { workoutService } from '@/services/workoutService'
+import { workoutService, MAX_WORKOUT_DURATION_MS } from '@/services/workoutService'
 import { useAppStore } from '@/store/appStore'
 import { loadLocalSession } from '@/utils/localSession'
 
 export function ActiveWorkoutBar() {
-  const { activeProfile } = useSession()
+  const { user, activeProfile } = useSession()
   const workout = useAppStore((s) => s.minimizedWorkout)
   const setMinimizedWorkout = useAppStore((s) => s.setMinimizedWorkout)
   const navigate = useNavigate()
@@ -17,24 +17,31 @@ export function ActiveWorkoutBar() {
       return
     }
     setMinimizedWorkout(null)
-    const local = loadLocalSession(activeProfile.id)
-    if (local && !local.session.completed) {
-      setMinimizedWorkout({ id: local.session.id, name: local.session.templateName })
-      return
-    }
     let cancelled = false
-    void workoutService.findActiveSession(activeProfile.id).then((open) => {
+
+    void (async () => {
+      if (user) {
+        await workoutService.expireStaleOpenSessions({ user, profile: activeProfile })
+      }
+      if (cancelled) return
+      const local = loadLocalSession(activeProfile.id)
+      if (local && !local.session.completed && Date.now() - local.session.startedAt < MAX_WORKOUT_DURATION_MS) {
+        setMinimizedWorkout({ id: local.session.id, name: local.session.templateName })
+        return
+      }
+      const open = await workoutService.findActiveSession(activeProfile.id)
       if (cancelled) return
       if (open) {
         setMinimizedWorkout({ id: open.id, name: open.templateName })
         return
       }
       setMinimizedWorkout(null)
-    })
+    })()
+
     return () => {
       cancelled = true
     }
-  }, [activeProfile?.id, setMinimizedWorkout])
+  }, [activeProfile?.id, user?.id, setMinimizedWorkout])
 
   if (!workout) return null
 

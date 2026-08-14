@@ -22,7 +22,7 @@ import { useRestTimer } from '@/hooks/useRestTimer'
 import { useSession } from '@/hooks/useSession'
 import { exerciseService } from '@/services/exerciseService'
 import { profileService } from '@/services/profileService'
-import { workoutService } from '@/services/workoutService'
+import { workoutService, MAX_WORKOUT_DURATION_MS } from '@/services/workoutService'
 import type {
   Exercise,
   ExerciseSet,
@@ -75,6 +75,7 @@ export function WorkoutModePage() {
   const [finishingAsLast, setFinishingAsLast] = useState(false)
   const [finishExerciseOpen, setFinishExerciseOpen] = useState(false)
   const [finishingExercise, setFinishingExercise] = useState(false)
+  const [actionError, setActionError] = useState('')
   const [timerOpen, setTimerOpen] = useState(false)
   const [timerMinutes, setTimerMinutes] = useState(2)
   const setMinimizedWorkout = useAppStore((s) => s.setMinimizedWorkout)
@@ -122,9 +123,13 @@ export function WorkoutModePage() {
       try {
         const local = loadLocalSession(profile.id)
         const localMatch = local && local.session.id === id ? local : null
+        const localStale =
+          localMatch &&
+          !localMatch.session.completed &&
+          Date.now() - localMatch.session.startedAt >= MAX_WORKOUT_DURATION_MS
 
         // Mostra na hora o que já está no aparelho (evita tela de loading depois de iniciar).
-        if (localMatch) {
+        if (localMatch && !localStale) {
           setSession(localMatch.session)
           setExercises(localMatch.exercises)
           setSets(localMatch.sets)
@@ -152,6 +157,26 @@ export function WorkoutModePage() {
         setSession(sessionData)
         setExercises(exercisesData)
         setSets(setsData)
+        const stale = !sessionData.completed && Date.now() - sessionData.startedAt >= MAX_WORKOUT_DURATION_MS
+        if (stale && user) {
+          leavingRef.current = true
+          const result = await workoutService.completeSessionAsLastTime({
+            user,
+            profile,
+            session: sessionData,
+            exercises: exercisesData,
+            sets: setsData,
+            autoExpired: true,
+          })
+          if (!alive) return
+          setExercises(result.exercises)
+          setSets(result.sets)
+          setFinished(result.session)
+          setDoneSummary(null)
+          setMinimizedWorkout(null)
+          setLoading(false)
+          return
+        }
         const active =
           exercisesData.find((e) => e.status === 'active') ??
           exercisesData.find((e) => e.status === 'deferred' || e.status === 'pending') ??
@@ -183,7 +208,7 @@ export function WorkoutModePage() {
       unsubEx?.()
       unsubSets?.()
     }
-  }, [sessionId, activeProfile?.id, activeProfile?.householdId])
+  }, [sessionId, activeProfile?.id, activeProfile?.householdId, user?.id])
 
   useEffect(() => {
     if (!activeProfile || !current) return
@@ -219,6 +244,9 @@ export function WorkoutModePage() {
         setWeight(0)
         setReps(current.repMin)
       }
+    }).catch(() => {
+      if (!alive) return
+      setLastSets([])
     })
 
     return () => {
@@ -430,6 +458,7 @@ export function WorkoutModePage() {
     if (!user || !session || !activeProfile) return
     setFinishingAsLast(true)
     leavingRef.current = true
+    setActionError('')
     try {
       rest.skip()
       const result = await workoutService.completeSessionAsLastTime({
@@ -447,7 +476,7 @@ export function WorkoutModePage() {
       setFinishAsLastOpen(false)
     } catch (err) {
       leavingRef.current = false
-      setError(err instanceof Error ? err.message : 'Não foi possível concluir o treino.')
+      setActionError(err instanceof Error ? err.message : 'Não foi possível concluir o treino.')
       setFinishingAsLast(false)
     }
   }
@@ -455,6 +484,7 @@ export function WorkoutModePage() {
   async function finishExerciseAsLastTime() {
     if (!user || !session || !activeProfile || !current) return
     setFinishingExercise(true)
+    setActionError('')
     try {
       rest.skip()
       const result = await workoutService.completeExerciseAsLastTime({
@@ -479,7 +509,7 @@ export function WorkoutModePage() {
       setFinishingExercise(false)
       hapticSuccess()
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Não foi possível concluir o exercício.')
+      setActionError(err instanceof Error ? err.message : 'Não foi possível concluir o exercício.')
       setFinishingExercise(false)
     }
   }
@@ -768,6 +798,9 @@ export function WorkoutModePage() {
           Este exercício será marcado como feito com as mesmas cargas da última vez. A próxima vez
           continua com esses pesos. Sem progressão nem recorde novos.
         </p>
+        {actionError && finishExerciseOpen ? (
+          <p className="mt-3 text-sm text-danger">{actionError}</p>
+        ) : null}
         <div className="mt-5 grid grid-cols-1 gap-2">
           <Button
             variant="primary"
@@ -796,6 +829,9 @@ export function WorkoutModePage() {
           exercício. Nada novo de progressão ou recorde. Ideal quando você treinou mas esqueceu de
           anotar.
         </p>
+        {actionError && finishAsLastOpen ? (
+          <p className="mt-3 text-sm text-danger">{actionError}</p>
+        ) : null}
         <div className="mt-5 grid grid-cols-1 gap-2">
           <Button
             variant="primary"

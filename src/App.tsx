@@ -44,14 +44,20 @@ function MissingFirebase() {
 function BootScreen({ error }: { error?: string | null }) {
   return (
     <div className="flex min-h-svh flex-col items-center justify-center bg-bg px-6 text-center">
-      <h1 className="font-display text-2xl">{error ? 'Não abriu' : 'Carregando'}</h1>
+      {error ? null : (
+        <span
+          className="mb-5 h-10 w-10 animate-spin rounded-full border-2 border-line border-t-accent"
+          aria-hidden
+        />
+      )}
+      <h1 className="font-display text-2xl">{error ? 'Não abriu' : 'Abrindo…'}</h1>
+      <p className="mt-2 max-w-sm text-sm text-muted">
+        {error ?? 'Se já treinou neste aparelho, a home abre em seguida.'}
+      </p>
       {error ? (
-        <>
-          <p className="mt-3 max-w-sm text-sm text-muted">{error}</p>
-          <Button className="mt-6" onClick={() => window.location.reload()}>
-            Tentar de novo
-          </Button>
-        </>
+        <Button className="mt-6" onClick={() => window.location.reload()}>
+          Tentar de novo
+        </Button>
       ) : null}
     </div>
   )
@@ -68,8 +74,9 @@ function RouteFallback() {
 function Guard() {
   const { firebaseUser, bootstrapping, user, bootError } = useSession()
   if (bootError && !user) return <BootScreen error={bootError} />
-  if (!firebaseUser) return <BootScreen />
-  if (bootstrapping && !user) return <BootScreen />
+  // Com sessão em cache, abre na hora — não espera o Firebase Auth acordar (pode levar minutos de manhã).
+  if (user) return <Outlet />
+  if (!firebaseUser || bootstrapping) return <BootScreen />
   return <Outlet />
 }
 

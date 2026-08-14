@@ -2,7 +2,7 @@ import { presetGoalsForProfile } from '@/data/diets'
 import { profileRepository, buildProfile, buildProfileMember } from '@/repositories/profileRepository'
 import { seedService } from '@/services/seedService'
 import type { Household, Profile, ProfileAvatar, UserRecord } from '@/types'
-import { auditFields } from '@/utils/audit'
+import { auditFields, isLive } from '@/utils/audit'
 import { inviteCode, newId } from '@/utils/ids'
 import { avatarFromName } from '@/utils/profileAvatar'
 import { withTimeout } from '@/utils/withTimeout'
@@ -13,12 +13,29 @@ const DEFAULT_PROFILES: Array<{ name: string; avatar: ProfileAvatar }> = [
   { name: 'Convidado', avatar: 'guest' },
 ]
 
+const defaultNameSet = new Set(DEFAULT_PROFILES.map((item) => item.name.toLowerCase()))
+const ensureLocks = new Map<string, Promise<Profile[]>>()
+
+function profileKey(name: string): string {
+  return name.trim().toLowerCase()
+}
+
+function preferProfile(a: Profile, b: Profile): Profile {
+  const score = (profile: Profile) =>
+    (profile.heightCm ?? 0) > 0 || (profile.weightGoalKg ?? 0) > 0 ? 1 : 0
+  const delta = score(b) - score(a)
+  if (delta !== 0) return delta > 0 ? b : a
+  return a.createdAt <= b.createdAt ? a : b
+}
+
 export function sortProfiles(profiles: Profile[]): Profile[] {
   const rank = (name: string) => {
     const index = DEFAULT_PROFILES.findIndex((item) => item.name.toLowerCase() === name.toLowerCase())
     return index === -1 ? DEFAULT_PROFILES.length : index
   }
-  return [...profiles].sort((a, b) => rank(a.name) - rank(b.name) || a.name.localeCompare(b.name, 'pt-BR'))
+  return [...profiles]
+    .filter(isLive)
+    .sort((a, b) => rank(a.name) - rank(b.name) || a.name.localeCompare(b.name, 'pt-BR'))
 }
 
 export const profileService = {
@@ -156,10 +173,20 @@ export const profileService = {
   },
 
   async ensureDefaultProfiles(user: UserRecord): Promise<Profile[]> {
-    const current = sortProfiles(
-      await withTimeout(profileRepository.listHouseholdProfiles(user.householdId), 5000, 'perfis'),
-    )
-    const names = new Set(current.map((item) => item.name.trim().toLowerCase()))
+    const pending = ensureLocks.get(user.householdId)
+    if (pending) return pending
+    const run = this.ensureDefaultProfilesOnce(user).finally(() => {
+      ensureLocks.delete(user.householdId)
+    })
+    ensureLocks.set(user.householdId, run)
+    return run
+  },
+
+  async ensureDefaultProfilesOnce(user: UserRecord): Promise<Profile[]> {
+    const current = await withTimeout(profileRepository.listHouseholdProfiles(user.householdId), 5000, 'perfis')
+    await this.dedupeDefaultProfiles(current, user.id)
+    const afterDedupe = sortProfiles(await profileRepository.listHouseholdProfiles(user.householdId))
+    const names = new Set(afterDedupe.map((item) => profileKey(item.name)))
     const created: Profile[] = []
     for (const def of DEFAULT_PROFILES) {
       if (names.has(def.name.toLowerCase())) continue
@@ -167,12 +194,32 @@ export const profileService = {
     }
     const profiles = created.length
       ? sortProfiles(await profileRepository.listHouseholdProfiles(user.householdId))
-      : current
+      : afterDedupe
 
     setTimeout(() => {
       void this.seedInBackground(user, profiles)
     }, created.length === 0 ? 2500 : 0)
     return profiles
+  },
+
+  async dedupeDefaultProfiles(profiles: Profile[], userId: string): Promise<void> {
+    const live = profiles.filter(isLive)
+    const extras: Profile[] = []
+    for (const key of defaultNameSet) {
+      const same = live.filter((item) => profileKey(item.name) === key)
+      if (same.length < 2) continue
+      const keep = same.reduce(preferProfile)
+      extras.push(...same.filter((item) => item.id !== keep.id))
+    }
+    await Promise.all(
+      extras.map((profile) =>
+        profileRepository.updateProfile(profile.id, {
+          active: false,
+          archivedAt: Date.now(),
+          ...auditFields(userId),
+        }),
+      ),
+    )
   },
 
   async seedInBackground(user: UserRecord, profiles: Profile[]): Promise<void> {
@@ -196,11 +243,17 @@ export const profileService = {
   ): Promise<Profile> {
     const seed = options.seed ?? true
     const avatar = options.avatar ?? avatarFromName(name)
-    const goals = presetGoalsForProfile(name, avatar)
+    const trimmed = name.trim()
+    if (!trimmed) throw new Error('Nome não pode ficar vazio.')
+    const existing = sortProfiles(await profileRepository.listHouseholdProfiles(user.householdId))
+    if (existing.some((item) => profileKey(item.name) === profileKey(trimmed))) {
+      throw new Error('Já existe um perfil com esse nome.')
+    }
+    const goals = presetGoalsForProfile(trimmed, avatar)
     const profile = buildProfile({
       householdId: user.householdId,
       ownerUserId: user.id,
-      name,
+      name: trimmed,
       avatar,
       weeklyWorkoutGoal: 4,
       calorieGoal: goals?.calorieGoal ?? 3500,

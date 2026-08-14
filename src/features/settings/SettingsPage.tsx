@@ -106,9 +106,14 @@ export function SettingsPage() {
 
   async function createProfile() {
     if (!user || !newName.trim()) return
-    await profileService.createProfile(user, newName.trim())
-    setNewName('')
-    setMessage('Perfil criado. Troque em Quem vai treinar.')
+    try {
+      await profileService.createProfile(user, newName.trim())
+      setNewName('')
+      setError('')
+      setMessage('Perfil criado. Troque em Quem vai treinar.')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Não foi possível criar o perfil.')
+    }
   }
 
   async function importFile(file: File) {

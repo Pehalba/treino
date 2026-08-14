@@ -22,10 +22,19 @@ import { pickNextExercise, withMuscle } from '@/utils/muscleOrder'
 import { detectNewRecords, summarizeProgression } from '@/utils/progression'
 import { totalVolume } from '@/utils/volume'
 import { getLastLoad, saveLastLoad } from '@/utils/exerciseLoad'
-import { clearLocalSession, saveLocalSession, type LocalWorkoutSnapshot } from '@/utils/localSession'
+import { clearLocalSession, loadLocalSession, saveLocalSession, type LocalWorkoutSnapshot } from '@/utils/localSession'
+
+/** Treino aberto há mais que isso é encerrado sozinho (como “Finalizar todo o treino”). */
+export const MAX_WORKOUT_DURATION_MS = 2.5 * 60 * 60 * 1000
 
 /** Evita cancelar um treino antes da criação no Firestore terminar (senão a gravação “ressuscita” a sessão). */
 const pendingSessionWrites = new Map<string, Promise<void>>()
+const expiringSessions = new Set<string>()
+
+function isStaleOpenSession(session: WorkoutSession): boolean {
+  if (session.completed) return false
+  return Date.now() - session.startedAt >= MAX_WORKOUT_DURATION_MS
+}
 
 export const workoutService = {
   async getHomeBundle(
@@ -33,17 +42,25 @@ export const workoutService = {
     householdId?: string,
   ): Promise<{ templates: TemplateWithMeta[]; sessions: WorkoutSession[] }> {
     const hid = householdId ?? ''
-    const [templates, allTemplateExercises, sessions, exercises] = await Promise.all([
+    const [templates, allTemplateExercises, sessions] = await Promise.all([
       workoutRepository.listTemplates(profileId),
       workoutRepository.listTemplateExercisesByProfile(profileId),
       workoutRepository.listSessions(profileId, 40),
-      hid ? exerciseRepository.listByHousehold(hid) : Promise.resolve([]),
     ])
-    const catalog = exercises.length
-      ? exercises
-      : templates[0]?.householdId
-        ? await exerciseRepository.listByHousehold(templates[0].householdId)
-        : []
+    // Catálogo não bloqueia a home — nomes completos entram ao iniciar o treino.
+    let catalog: Exercise[] = []
+    if (hid) {
+      try {
+        catalog = await Promise.race([
+          exerciseRepository.listByHousehold(hid),
+          new Promise<Exercise[]>((resolve) => {
+            setTimeout(() => resolve([]), 1500)
+          }),
+        ])
+      } catch {
+        catalog = []
+      }
+    }
 
     const exerciseMap = new Map(catalog.map((item) => [item.id, item]))
     return {
@@ -89,7 +106,9 @@ export const workoutService = {
   }): Promise<{ session: WorkoutSession; exercises: WorkoutSessionExercise[] }> {
     const meta = params.template as TemplateWithMeta
     const fromMeta =
-      Array.isArray(meta.exercises) && meta.exercises.length > 0
+      Array.isArray(meta.exercises) &&
+      meta.exercises.length > 0 &&
+      meta.exercises.some((row) => row.exercise?.name)
         ? meta.exercises.filter(isLive).sort((a, b) => a.order - b.order)
         : null
 
@@ -180,7 +199,55 @@ export const workoutService = {
 
   async findActiveSession(profileId: string): Promise<WorkoutSession | null> {
     const open = await workoutRepository.listIncompleteSessions(profileId)
-    return open[0] ?? null
+    return open.find((session) => !isStaleOpenSession(session)) ?? null
+  },
+
+  /**
+   * Encerra treinos esquecidos (abertos há mais de 2h30) com as cargas da última vez.
+   */
+  async expireStaleOpenSessions(params: {
+    user: UserRecord
+    profile: Profile
+  }): Promise<WorkoutSession[]> {
+    const open = await workoutRepository.listIncompleteSessions(params.profile.id)
+    const local = loadLocalSession(params.profile.id)
+    const candidates = [...open]
+    if (
+      local &&
+      !local.session.completed &&
+      !candidates.some((item) => item.id === local.session.id)
+    ) {
+      candidates.push(local.session)
+    }
+
+    const closed: WorkoutSession[] = []
+    for (const session of candidates) {
+      if (!isStaleOpenSession(session)) continue
+      if (expiringSessions.has(session.id)) continue
+      expiringSessions.add(session.id)
+      try {
+        const bundle = await this.loadSessionBundle(session.id)
+        const localMatch = local?.session.id === session.id ? local : null
+        const exercises = bundle?.exercises?.length
+          ? bundle.exercises
+          : (localMatch?.exercises ?? [])
+        const sets = bundle?.sets?.length ? bundle.sets : (localMatch?.sets ?? [])
+        const result = await this.completeSessionAsLastTime({
+          user: params.user,
+          profile: params.profile,
+          session: bundle?.session ?? session,
+          exercises,
+          sets,
+          autoExpired: true,
+        })
+        closed.push(result.session)
+      } catch (err) {
+        console.error(err)
+      } finally {
+        expiringSessions.delete(session.id)
+      }
+    }
+    return closed
   },
 
   async loadSessionBundle(sessionId: string): Promise<{
@@ -198,13 +265,18 @@ export const workoutService = {
   },
 
   async lastSetsForExercise(profileId: string, exerciseId: string, excludeSessionId?: string): Promise<ExerciseSet[]> {
-    const all = await workoutRepository.listSetsByExercise(profileId, exerciseId)
-    const completed = all.filter((s) => s.completed && s.workoutSessionId !== excludeSessionId)
-    if (completed.length === 0) return []
-    const lastSessionId = completed[0].workoutSessionId
-    return completed
-      .filter((s) => s.workoutSessionId === lastSessionId)
-      .sort((a, b) => a.setNumber - b.setNumber)
+    try {
+      const all = await workoutRepository.listSetsByExercise(profileId, exerciseId)
+      const completed = all.filter((s) => s.completed && s.workoutSessionId !== excludeSessionId)
+      if (completed.length === 0) return []
+      const lastSessionId = completed[0].workoutSessionId
+      return completed
+        .filter((s) => s.workoutSessionId === lastSessionId)
+        .sort((a, b) => a.setNumber - b.setNumber)
+    } catch (err) {
+      console.error(err)
+      return []
+    }
   },
 
   async completeSet(params: {
@@ -324,22 +396,31 @@ export const workoutService = {
     exercises: WorkoutSessionExercise[]
     sets: ExerciseSet[]
     completedWithoutData?: boolean
+    autoExpired?: boolean
   }): Promise<WorkoutSession> {
-    const finishedAt = Date.now()
+    const maxMs = MAX_WORKOUT_DURATION_MS
+    const elapsedMs = Math.max(0, Date.now() - params.session.startedAt)
+    const finishedAt = params.autoExpired
+      ? params.session.startedAt + Math.min(elapsedMs, maxMs)
+      : Date.now()
     const completedExercises = params.exercises.filter((e) => e.status === 'completed').length
     const volume = totalVolume(params.sets)
+    const withoutData = params.completedWithoutData === true || params.autoExpired === true
+    const note = params.autoExpired
+      ? 'Encerrado automaticamente após 2h30 (igual à última vez).'
+      : 'Concluído sem registrar (igual à última vez).'
     const updated: WorkoutSession = {
       ...params.session,
       finishedAt,
       durationSeconds: Math.max(0, Math.round((finishedAt - params.session.startedAt) / 1000)),
       completed: true,
-      completedWithoutData: params.completedWithoutData === true,
+      completedWithoutData: withoutData,
       totalVolume: volume,
       exercisesCompleted: completedExercises,
-      notes: params.completedWithoutData
+      notes: withoutData
         ? params.session.notes
-          ? `${params.session.notes}\nConcluído sem registrar (igual à última vez).`
-          : 'Concluído sem registrar (igual à última vez).'
+          ? `${params.session.notes}\n${note}`
+          : note
         : params.session.notes,
     }
     await workoutRepository.saveSession(updated)
@@ -424,6 +505,7 @@ export const workoutService = {
     session: WorkoutSession
     exercises: WorkoutSessionExercise[]
     sets: ExerciseSet[]
+    autoExpired?: boolean
   }): Promise<{ session: WorkoutSession; exercises: WorkoutSessionExercise[]; sets: ExerciseSet[] }> {
     let nextExercises = [...params.exercises]
     let nextSets = [...params.sets]
@@ -449,6 +531,7 @@ export const workoutService = {
       exercises: nextExercises,
       sets: nextSets,
       completedWithoutData: true,
+      autoExpired: params.autoExpired === true,
     })
 
     return { session: finished, exercises: nextExercises, sets: nextSets }

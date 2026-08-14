@@ -149,6 +149,8 @@ export type Profile = {
   timerSeconds?: number
   ageYears?: number | null
   activityMultiplier?: number
+  active?: boolean
+  archivedAt?: number | null
   createdAt: number
   updatedAt?: number
   updatedBy?: string

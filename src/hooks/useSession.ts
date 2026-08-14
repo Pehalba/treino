@@ -25,15 +25,16 @@ function applySession(user: UserRecord, profiles: Profile[]) {
   const setUser = useAppStore.getState().setUser
   const setProfiles = useAppStore.getState().setProfiles
   const setActiveProfile = useAppStore.getState().setActiveProfile
+  const live = sortProfiles(profiles)
   setUser(user)
-  setProfiles(profiles)
+  setProfiles(live)
   const savedId = loadActiveProfileId(user.id)
   const current = useAppStore.getState().activeProfile
   const active =
-    (current && profiles.find((p) => p.id === current.id)) ||
-    (current && profiles.find((p) => samePerson(p, current.name))) ||
-    profiles.find((p) => p.id === savedId) ||
-    profiles.find((p) => samePerson(p, 'Pedro')) ||
+    (current && live.find((p) => p.id === current.id)) ||
+    (current && live.find((p) => samePerson(p, current.name))) ||
+    live.find((p) => p.id === savedId) ||
+    live.find((p) => samePerson(p, 'Pedro')) ||
     null
   if (active) {
     setActiveProfile(active)
@@ -69,11 +70,14 @@ export function useAuthBootstrap(): void {
     let cancelled = false
     let unsubAuth: (() => void) | undefined
 
-    try {
-      getDb()
-    } catch (error) {
-      console.error(error)
-    }
+    // IndexedDB do Firestore pode travar o primeiro paint se abrir síncrono.
+    const deferDb = window.setTimeout(() => {
+      try {
+        getDb()
+      } catch (error) {
+        console.error(error)
+      }
+    }, 0)
 
     const watchdog = window.setTimeout(() => {
       if (cancelled) return
@@ -84,14 +88,16 @@ export function useAuthBootstrap(): void {
       }
       setBootError('Não foi possível abrir o app. Verifica a internet e tenta de novo.')
       setBootstrapping(false)
-    }, 12000)
+    }, 8000)
 
     unsubAuth = authService.subscribe(async (firebaseUser) => {
       unsubProfiles?.()
       if (!firebaseUser) {
-        if (!useAppStore.getState().user) setBootstrapping(true)
+        // Persistência ainda acordando: se já há cache, não cria anônimo nem trava a tela.
+        if (useAppStore.getState().user) return
+        setBootstrapping(true)
         try {
-          await withTimeout(authService.ensureAnonymous(), 8000, 'entrar')
+          await withTimeout(authService.ensureAnonymous(), 6000, 'entrar')
         } catch (error) {
           console.error(error)
           clearBootCache()
@@ -156,6 +162,7 @@ export function useAuthBootstrap(): void {
     return () => {
       cancelled = true
       window.clearTimeout(watchdog)
+      window.clearTimeout(deferDb)
       unsubAuth?.()
       unsubProfiles?.()
     }
