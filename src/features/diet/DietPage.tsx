@@ -494,6 +494,10 @@ export function DietPage() {
                         {formatKcal(preview.calories)}
                       </p>
                     </div>
+                    <p className="mt-2 text-xs text-muted tabular-nums">
+                      Prot {formatGrams(preview.protein)} · Carbo {formatGrams(preview.carbs)} · Gord{' '}
+                      {formatGrams(preview.fat)}
+                    </p>
                     <div className="mt-3">
                       <NumberStepper
                         compact
@@ -617,8 +621,12 @@ function DishDetail({
               <div className="min-w-0">
                 <p className="font-medium">{item.foodName}</p>
                 {item.quantityLabel ? <p className="mt-0.5 text-sm text-muted">{item.quantityLabel}</p> : null}
+                <p className="mt-1 text-xs text-muted tabular-nums">
+                  Prot {formatGrams(item.protein)} · Carbo {formatGrams(item.carbs)} · Gord{' '}
+                  {formatGrams(item.fat)}
+                </p>
               </div>
-              <p className="shrink-0 text-sm text-muted">{formatKcal(item.calories)}</p>
+              <p className="shrink-0 text-sm font-semibold tabular-nums">{formatKcal(item.calories)}</p>
             </li>
           ))}
         </ul>
