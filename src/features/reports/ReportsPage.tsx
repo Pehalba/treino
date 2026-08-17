@@ -8,8 +8,8 @@ import { useSession } from '@/hooks/useSession'
 import { exerciseService } from '@/services/exerciseService'
 import { dietService, nutritionService } from '@/services/nutritionService'
 import { reportService, type ReportFilter } from '@/services/reportService'
+import { withoutGhostDuplicates, workoutService } from '@/services/workoutService'
 import { weightService } from '@/services/weightService'
-import { workoutService } from '@/services/workoutService'
 import { progressService } from '@/services/progressService'
 import { useAppStore } from '@/store/appStore'
 import { MUSCLE_LABELS, MEAL_LABELS, REPORT_RANGES, type Exercise, type ExerciseSet, type FoodLog, type ReportRange, type WeightEntry, type WorkoutSession } from '@/types'
@@ -23,7 +23,7 @@ import {
 } from '@/utils/dates'
 import { formatKcal, formatKg, formatNumber, formatPercent } from '@/utils/format'
 import { ChevronLeft, ChevronRight } from 'lucide-react'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 
@@ -58,6 +58,7 @@ export function ReportsPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [exerciseId, setExerciseId] = useState('')
+  const selectedMonthRef = useRef<HTMLButtonElement>(null)
 
   async function load() {
     if (!activeProfile) return
@@ -81,7 +82,7 @@ export function ReportsPage() {
         dietService.getActivePlan(activeProfile),
       ])
       if (useAppStore.getState().activeProfile?.id !== profileId) return
-      setSessions(sess)
+      setSessions(withoutGhostDuplicates(sess))
       setSets(allSets)
       setLogs(food)
       setWeights(w)
@@ -100,6 +101,11 @@ export function ReportsPage() {
   useEffect(() => {
     void load()
   }, [activeProfile?.id])
+
+  useEffect(() => {
+    if (loading || mode !== 'month') return
+    selectedMonthRef.current?.scrollIntoView({ inline: 'center', block: 'nearest', behavior: 'auto' })
+  }, [loading, mode, month, year])
 
   const currentYear = now.getFullYear()
   const currentMonth = now.getMonth()
@@ -217,10 +223,12 @@ export function ReportsPage() {
               return (
                 <button
                   key={index}
+                  ref={selected ? selectedMonthRef : undefined}
                   type="button"
                   disabled={disabled}
+                  aria-pressed={selected}
                   onClick={() => selectMonth(index)}
-                  className={`shrink-0 rounded-full px-4 py-2 text-sm capitalize disabled:cursor-not-allowed disabled:opacity-35 ${
+                  className={`shrink-0 rounded-full px-4 py-2 text-sm font-semibold capitalize disabled:cursor-not-allowed disabled:opacity-35 ${
                     selected ? 'bg-accent text-bg' : 'bg-card2 text-muted'
                   }`}
                 >

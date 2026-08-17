@@ -1,57 +1,66 @@
-import { useEffect, useRef, useState } from 'react'
-import { hapticAlert } from '@/utils/haptics'
+import { useEffect, useState } from 'react'
+import { useAppStore } from '@/store/appStore'
 
-export function useRestTimer() {
-  const [remaining, setRemaining] = useState(0)
-  const [running, setRunning] = useState(false)
-  const [finished, setFinished] = useState(false)
-  const endAt = useRef(0)
-  const completedRef = useRef(false)
+export function remainingFromEndsAt(endsAt: number | null | undefined): number {
+  if (!endsAt) return 0
+  return Math.max(0, Math.ceil((endsAt - Date.now()) / 1000))
+}
+
+export function useRestClock() {
+  const endsAt = useAppStore((s) => s.restEndsAt)
+  const finished = useAppStore((s) => s.restFinished)
+  const completeRest = useAppStore((s) => s.completeRest)
+  const [remaining, setRemaining] = useState(() => remainingFromEndsAt(endsAt))
 
   useEffect(() => {
-    if (!running) return
     const tick = () => {
-      const left = Math.max(0, Math.ceil((endAt.current - Date.now()) / 1000))
+      const left = remainingFromEndsAt(endsAt)
       setRemaining(left)
-      if (left > 0 || completedRef.current) return
-      completedRef.current = true
-      setRunning(false)
-      setRemaining(0)
-      setFinished(true)
-      hapticAlert()
+      if (endsAt && left <= 0) completeRest()
     }
     tick()
+    if (!endsAt) return
     const id = window.setInterval(tick, 250)
     return () => window.clearInterval(id)
-  }, [running])
+  }, [endsAt, completeRest])
+
+  return { remaining, running: remaining > 0, finished, endsAt }
+}
+
+export function useRestTimer() {
+  const clock = useRestClock()
+  const setRestEndsAt = useAppStore((s) => s.setRestEndsAt)
+  const clearRestFinished = useAppStore((s) => s.clearRestFinished)
 
   function start(seconds: number) {
     const safe = Math.max(1, Math.round(seconds))
-    completedRef.current = false
-    setFinished(false)
-    endAt.current = Date.now() + safe * 1000
-    setRemaining(safe)
-    setRunning(true)
+    setRestEndsAt(Date.now() + safe * 1000)
+  }
+
+  function restore(endAt: number) {
+    if (endAt <= Date.now()) return
+    setRestEndsAt(endAt)
   }
 
   function add(seconds: number) {
-    completedRef.current = false
-    setFinished(false)
-    endAt.current += seconds * 1000
-    setRemaining((v) => v + seconds)
-    setRunning(true)
+    const current = useAppStore.getState().restEndsAt
+    const base = current && current > Date.now() ? current : Date.now()
+    setRestEndsAt(base + seconds * 1000)
   }
 
   function skip() {
-    completedRef.current = true
-    setFinished(false)
-    setRunning(false)
-    setRemaining(0)
+    setRestEndsAt(null)
+    clearRestFinished()
   }
 
-  function clearFinished() {
-    setFinished(false)
+  return {
+    remaining: clock.remaining,
+    running: clock.running,
+    finished: clock.finished,
+    start,
+    restore,
+    add,
+    skip,
+    clearFinished: clearRestFinished,
   }
-
-  return { remaining, running, finished, start, add, skip, clearFinished }
 }

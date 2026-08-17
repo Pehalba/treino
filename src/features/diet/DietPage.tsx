@@ -1,6 +1,7 @@
 import { AppShell } from '@/components/layout/AppShell'
 import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { EditButton } from '@/components/ui/EditButton'
 import { Input } from '@/components/ui/Input'
 import { Modal } from '@/components/ui/Modal'
@@ -16,13 +17,14 @@ import {
   MEAL_LABELS,
   type DietMeal,
   type DietMealItem,
+  type DietPlan,
   type DietSupplement,
   type DietSupplementKind,
 } from '@/types'
 import { loadDietCache, saveDietCache } from '@/utils/dietCache'
 import { loadSupplementCache } from '@/utils/supplementCache'
 import { cn } from '@/utils/cn'
-import { groupMealsByMenuCategory, mealMacroTotals, type DietMenuCategory } from '@/utils/dietMeals'
+import { groupMealsByMenuCategory, mealMacroTotals, nextDishName, normalizeMealCategory, type DietMenuCategory } from '@/utils/dietMeals'
 import { formatGrams, formatKcal, parseLocaleNumber } from '@/utils/format'
 import { scaleMealItemByFactor } from '@/utils/scaleMealItem'
 import { useEffect, useMemo, useState } from 'react'
@@ -49,6 +51,7 @@ const DEFAULT_NAMES: Record<DietSupplementKind, string> = {
 export function DietPage() {
   const { user, activeProfile } = useSession()
   const [meals, setMeals] = useState<MealWithItems[]>([])
+  const [plan, setPlan] = useState<DietPlan | null>(null)
   const [planName, setPlanName] = useState('Minha dieta')
   const [loading, setLoading] = useState(true)
   const [category, setCategory] = useState<DietTab>('breakfast')
@@ -69,16 +72,30 @@ export function DietPage() {
   const [savingDish, setSavingDish] = useState(false)
   const [dishError, setDishError] = useState('')
   const [dishName, setDishName] = useState('')
+  const [addDishOpen, setAddDishOpen] = useState(false)
+  const [newDishName, setNewDishName] = useState('')
+  const [addingDish, setAddingDish] = useState(false)
+  const [removeMeal, setRemoveMeal] = useState<MealWithItems | null>(null)
+  const [removeItem, setRemoveItem] = useState<DietMealItem | null>(null)
+  const [foodName, setFoodName] = useState('')
+  const [foodQty, setFoodQty] = useState('')
+  const [foodKcal, setFoodKcal] = useState('')
+  const [foodProtein, setFoodProtein] = useState('')
+  const [foodCarbs, setFoodCarbs] = useState('')
+  const [foodFat, setFoodFat] = useState('')
+  const [addingFood, setAddingFood] = useState(false)
 
   useEffect(() => {
     if (!activeProfile) return
     let alive = true
     const cached = loadDietCache(activeProfile.id)
     if (cached?.plan) {
+      setPlan(cached.plan)
       setPlanName(cached.plan.name)
       setMeals(cached.meals)
       setLoading(false)
     } else {
+      setPlan(null)
       setPlanName('Minha dieta')
       setMeals([])
       setLoading(true)
@@ -88,6 +105,7 @@ export function DietPage() {
 
     dietService.getActivePlan(activeProfile).then((data) => {
       if (!alive) return
+      setPlan(data.plan)
       setPlanName(data.plan?.name ?? 'Minha dieta')
       setMeals(data.meals)
       setLoading(false)
@@ -117,6 +135,34 @@ export function DietPage() {
     ? null
     : sections.find((section) => section.category === category) ?? sections[0]
   const dishes = current?.meals ?? []
+
+  function persistMeals(next: MealWithItems[], nextPlan = plan) {
+    setMeals(next)
+    if (detailMeal) {
+      const updated = next.find((meal) => meal.id === detailMeal.id) ?? null
+      setDetailMeal(updated)
+    }
+    if (editMeal) {
+      const updated = next.find((meal) => meal.id === editMeal.id) ?? null
+      if (updated) setEditMeal(updated)
+    }
+    if (activeProfile && nextPlan) {
+      saveDietCache(activeProfile.id, { plan: nextPlan, meals: next })
+    }
+  }
+
+  async function ensurePlan(): Promise<DietPlan | null> {
+    if (plan) return plan
+    if (!user || !activeProfile) return null
+    const created = await dietEditorService.createEmptyPlan({
+      profile: activeProfile,
+      userId: user.id,
+      name: planName,
+    })
+    setPlan(created)
+    setPlanName(created.name)
+    return created
+  }
 
   const supplementCards = useMemo(() => {
     return DIET_SUPPLEMENT_KINDS.map((kind) => {
@@ -156,10 +202,10 @@ export function DietPage() {
 
   useEffect(() => {
     if (isSupplementsTab) return
-    if (!current || current.meals.length > 0) return
+    if (sections.some((section) => section.category === category)) return
     const first = sections.find((section) => section.meals.length > 0)
     if (first) setCategory(first.category)
-  }, [current, sections, isSupplementsTab])
+  }, [category, sections, isSupplementsTab])
 
   function openDishEditor(meal: MealWithItems) {
     const next: Record<string, number> = {}
@@ -168,6 +214,7 @@ export function DietPage() {
     setDishName(meal.name)
     setDishError('')
     setEditMeal(meal)
+    resetFoodForm()
   }
 
   async function saveDishEdit() {
@@ -206,17 +253,109 @@ export function DietPage() {
         items: nextItems,
       }
       const nextMeals = meals.map((meal) => (meal.id === updatedMeal.id ? updatedMeal : meal))
-      setMeals(nextMeals)
-      setDetailMeal(updatedMeal)
-      const cached = loadDietCache(activeProfile.id)
-      if (cached?.plan) {
-        saveDietCache(activeProfile.id, { plan: cached.plan, meals: nextMeals })
-      }
+      persistMeals(nextMeals)
       setEditMeal(null)
     } catch (err) {
       setDishError(err instanceof Error ? err.message : 'Não foi possível salvar o prato.')
     } finally {
       setSavingDish(false)
+    }
+  }
+
+  function resetFoodForm() {
+    setFoodName('')
+    setFoodQty('')
+    setFoodKcal('')
+    setFoodProtein('')
+    setFoodCarbs('')
+    setFoodFat('')
+  }
+
+  async function addDish() {
+    if (!user || !activeProfile || isSupplementsTab) return
+    const categoryId = current?.category
+    if (!categoryId) return
+    setAddingDish(true)
+    setDishError('')
+    try {
+      const currentPlan = await ensurePlan()
+      if (!currentPlan) throw new Error('Não foi possível abrir a dieta.')
+      const existing = meals.filter((meal) => normalizeMealCategory(meal.category) === categoryId).length
+      const meal = await dietEditorService.addMeal({
+        profile: activeProfile,
+        plan: currentPlan,
+        userId: user.id,
+        name: newDishName.trim() || nextDishName(categoryId, existing),
+        category: categoryId,
+        order: meals.length,
+      })
+      const created: MealWithItems = { ...meal, items: [] }
+      persistMeals([...meals, created], currentPlan)
+      setAddDishOpen(false)
+      setNewDishName('')
+      openDishEditor(created)
+    } catch (err) {
+      setDishError(err instanceof Error ? err.message : 'Não foi possível criar o prato.')
+    } finally {
+      setAddingDish(false)
+    }
+  }
+
+  async function confirmRemoveDish() {
+    if (!user || !removeMeal) return
+    await dietEditorService.archiveMeal(removeMeal.id, user.id)
+    persistMeals(meals.filter((meal) => meal.id !== removeMeal.id))
+    setRemoveMeal(null)
+    setDetailMeal(null)
+    setEditMeal(null)
+  }
+
+  async function confirmRemoveFood() {
+    if (!user || !removeItem) return
+    await dietEditorService.archiveItem(removeItem.id, user.id)
+    const next = meals.map((meal) => ({
+      ...meal,
+      items: meal.items.filter((item) => item.id !== removeItem.id),
+    }))
+    persistMeals(next)
+    setDishMultipliers((prev) => {
+      const copy = { ...prev }
+      delete copy[removeItem.id]
+      return copy
+    })
+    setRemoveItem(null)
+  }
+
+  async function addFoodToDish() {
+    if (!user || !activeProfile || !editMeal) return
+    const name = foodName.trim()
+    if (!name) {
+      setDishError('Informe o nome do alimento.')
+      return
+    }
+    setAddingFood(true)
+    setDishError('')
+    try {
+      const item = await dietEditorService.addItem({
+        profile: activeProfile,
+        meal: editMeal,
+        userId: user.id,
+        order: editMeal.items.length,
+        foodName: name,
+        calories: parseLocaleNumber(foodKcal) ?? 0,
+        protein: parseLocaleNumber(foodProtein) ?? 0,
+        carbs: parseLocaleNumber(foodCarbs) ?? 0,
+        fat: parseLocaleNumber(foodFat) ?? 0,
+        quantityLabel: foodQty.trim(),
+      })
+      const nextMeal: MealWithItems = { ...editMeal, items: [...editMeal.items, item] }
+      persistMeals(meals.map((meal) => (meal.id === nextMeal.id ? nextMeal : meal)))
+      setDishMultipliers((prev) => ({ ...prev, [item.id]: 1 }))
+      resetFoodForm()
+    } catch (err) {
+      setDishError(err instanceof Error ? err.message : 'Não foi possível adicionar o alimento.')
+    } finally {
+      setAddingFood(false)
     }
   }
 
@@ -383,16 +522,38 @@ export function DietPage() {
                 <h3 className="font-display text-xl">
                   {current ? MEAL_LABELS[current.category] : 'Refeição'}
                 </h3>
-                <p className="text-sm text-muted">
-                  {dishes.length === 0
-                    ? 'Sem opções ainda'
-                    : `${dishes.length} ${dishes.length === 1 ? 'opção' : 'opções'}`}
-                </p>
+                <Button
+                  size="md"
+                  variant="secondary"
+                  onClick={() => {
+                    setNewDishName('')
+                    setDishError('')
+                    setAddDishOpen(true)
+                  }}
+                >
+                  Adicionar prato
+                </Button>
               </div>
+              <p className="mb-4 text-sm text-muted">
+                {dishes.length === 0
+                  ? 'Sem opções ainda. Adicione um prato para esta refeição.'
+                  : `${dishes.length} ${dishes.length === 1 ? 'opção' : 'opções'}`}
+              </p>
 
               {dishes.length === 0 ? (
                 <Card className="border border-dashed border-line bg-transparent">
                   <p className="text-sm text-muted">Nenhum prato nesta refeição ainda.</p>
+                  <Button
+                    className="mt-3 w-full"
+                    variant="secondary"
+                    onClick={() => {
+                      setNewDishName('')
+                      setDishError('')
+                      setAddDishOpen(true)
+                    }}
+                  >
+                    Adicionar prato
+                  </Button>
                 </Card>
               ) : (
                 <div className="grid grid-cols-1 gap-3">
@@ -462,6 +623,7 @@ export function DietPage() {
             meal={detailMeal}
             onEdit={() => openDishEditor(detailMeal)}
             onVideo={() => setVideoMeal(detailMeal)}
+            onDelete={() => setRemoveMeal(detailMeal)}
           />
         ) : null}
       </Modal>
@@ -473,13 +635,16 @@ export function DietPage() {
         {editMeal ? (
           <>
             <p className="mb-3 text-sm text-muted">
-              1,0 = porção atual. Ex.: ovo de 1 para 1,5 ou 2 recalcula calorias e quantidade na dieta.
+              1,0 = porção atual. Dá para mudar o nome, as quantidades, incluir ou tirar alimentos.
             </p>
             <label className="mb-4 block text-sm text-muted">
               Nome do prato
               <Input className="mt-1" value={dishName} onChange={(e) => setDishName(e.target.value)} />
             </label>
             <div className="space-y-4">
+              {editMeal.items.length === 0 ? (
+                <p className="text-sm text-muted">Este prato ainda não tem alimentos. Adicione abaixo.</p>
+              ) : null}
               {editMeal.items.map((item) => {
                 const factor = dishMultipliers[item.id] ?? 1
                 const preview = scaleMealItemByFactor(item, factor)
@@ -498,7 +663,7 @@ export function DietPage() {
                       Prot {formatGrams(preview.protein)} · Carbo {formatGrams(preview.carbs)} · Gord{' '}
                       {formatGrams(preview.fat)}
                     </p>
-                    <div className="mt-3">
+                    <div className="mt-3 flex items-center justify-between gap-2">
                       <NumberStepper
                         compact
                         value={factor}
@@ -512,10 +677,48 @@ export function DietPage() {
                           }))
                         }
                       />
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="shrink-0 text-danger"
+                        disabled={savingDish || addingFood}
+                        onClick={() => setRemoveItem(item)}
+                      >
+                        Remover
+                      </Button>
                     </div>
                   </div>
                 )
               })}
+            </div>
+            <div className="mt-4 rounded-2xl border border-dashed border-line p-3">
+              <p className="text-sm font-semibold">Adicionar alimento</p>
+              <Input
+                className="mt-2"
+                placeholder="Alimento (ex.: ovo)"
+                value={foodName}
+                onChange={(e) => setFoodName(e.target.value)}
+              />
+              <Input
+                className="mt-2"
+                placeholder="Quantidade (ex.: 2 unidades)"
+                value={foodQty}
+                onChange={(e) => setFoodQty(e.target.value)}
+              />
+              <div className="mt-2 grid grid-cols-2 gap-2">
+                <Input placeholder="kcal" inputMode="decimal" value={foodKcal} onChange={(e) => setFoodKcal(e.target.value)} />
+                <Input placeholder="Proteína (g)" inputMode="decimal" value={foodProtein} onChange={(e) => setFoodProtein(e.target.value)} />
+                <Input placeholder="Carbo (g)" inputMode="decimal" value={foodCarbs} onChange={(e) => setFoodCarbs(e.target.value)} />
+                <Input placeholder="Gordura (g)" inputMode="decimal" value={foodFat} onChange={(e) => setFoodFat(e.target.value)} />
+              </div>
+              <Button
+                className="mt-3 w-full"
+                variant="secondary"
+                disabled={addingFood || savingDish || !foodName.trim()}
+                onClick={() => void addFoodToDish()}
+              >
+                {addingFood ? 'Adicionando…' : 'Incluir no prato'}
+              </Button>
             </div>
             <div className="mt-5 rounded-2xl bg-card2 p-4">
               <p className="text-xs tracking-wide text-muted uppercase">Total do prato</p>
@@ -538,6 +741,46 @@ export function DietPage() {
           </>
         ) : null}
       </Modal>
+      <Modal
+        open={addDishOpen}
+        onClose={() => !addingDish && setAddDishOpen(false)}
+        title="Novo prato"
+      >
+        <p className="mb-3 text-sm text-muted">
+          Entra em {current ? MEAL_LABELS[current.category] : 'esta refeição'}. Depois você monta os alimentos.
+        </p>
+        <label className="block text-sm text-muted">
+          Nome do prato
+          <Input
+            className="mt-1"
+            placeholder={current ? nextDishName(current.category, dishes.length) : 'Novo prato'}
+            value={newDishName}
+            onChange={(e) => setNewDishName(e.target.value)}
+          />
+        </label>
+        {dishError && addDishOpen ? <p className="mt-3 text-sm text-danger">{dishError}</p> : null}
+        <Button className="mt-4 w-full" size="xl" disabled={addingDish} onClick={() => void addDish()}>
+          {addingDish ? 'Criando…' : 'Criar prato'}
+        </Button>
+      </Modal>
+      <ConfirmDialog
+        open={Boolean(removeMeal)}
+        title="Excluir prato?"
+        message="Ele some das opções desta refeição. O que você já registrou em calorias não muda."
+        confirmLabel="Excluir"
+        danger
+        onCancel={() => setRemoveMeal(null)}
+        onConfirm={() => void confirmRemoveDish()}
+      />
+      <ConfirmDialog
+        open={Boolean(removeItem)}
+        title="Remover alimento?"
+        message="Ele sai deste prato. O histórico de calorias já registrado continua igual."
+        confirmLabel="Remover"
+        danger
+        onCancel={() => setRemoveItem(null)}
+        onConfirm={() => void confirmRemoveFood()}
+      />
       <Modal
         open={Boolean(editingKind)}
         onClose={() => !savingSupplement && setEditingKind(null)}
@@ -592,10 +835,12 @@ function DishDetail({
   meal,
   onEdit,
   onVideo,
+  onDelete,
 }: {
   meal: MealWithItems
   onEdit: () => void
   onVideo: () => void
+  onDelete: () => void
 }) {
   const totals = mealMacroTotals(meal.items)
   return (
@@ -641,6 +886,9 @@ function DishDetail({
             Como preparar
           </Button>
         ) : null}
+        <Button variant="danger" onClick={onDelete}>
+          Excluir prato
+        </Button>
       </div>
     </>
   )

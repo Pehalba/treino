@@ -1,18 +1,20 @@
 import type { MuscleGroup, WorkoutSessionExercise } from '@/types'
 
-export function pickNextExercise<T extends { id: string; status: string; muscleGroup: MuscleGroup; order: number }>(
-  exercises: T[],
-  currentId: string,
-  preferDifferentMuscle: boolean,
-): T | null {
-  const current = exercises.find((e) => e.id === currentId)
-  const stillOpen = (status: string) =>
-    status === 'pending' || status === 'active' || status === 'deferred'
+export function isOpenExerciseStatus(item: { status: string; skipReason?: string | null }): boolean {
+  if (item.status === 'skipped' || item.status === 'completed') return false
+  if (item.status === 'deferred' && item.skipReason === 'cannot_today') return false
+  return item.status === 'pending' || item.status === 'active' || item.status === 'deferred'
+}
 
-  if (!current) return exercises.find((e) => stillOpen(e.status)) ?? null
+export function pickNextExercise<
+  T extends { id: string; status: string; skipReason?: string | null; muscleGroup: MuscleGroup; order: number },
+>(exercises: T[], currentId: string, preferDifferentMuscle: boolean): T | null {
+  const current = exercises.find((e) => e.id === currentId)
+
+  if (!current) return exercises.find((e) => isOpenExerciseStatus(e)) ?? null
 
   const incomplete = exercises
-    .filter((e) => e.id !== currentId && stillOpen(e.status))
+    .filter((e) => e.id !== currentId && isOpenExerciseStatus(e))
     .sort((a, b) => a.order - b.order)
 
   if (incomplete.length === 0) return null

@@ -17,11 +17,13 @@ import type {
   WorkoutTemplateExercise,
 } from '@/types'
 import { isLive } from '@/utils/audit'
+import { todayKey } from '@/utils/dates'
 import { newId } from '@/utils/ids'
 import { pickNextExercise, withMuscle } from '@/utils/muscleOrder'
 import { detectNewRecords, summarizeProgression } from '@/utils/progression'
 import { totalVolume } from '@/utils/volume'
 import { getLastLoad, saveLastLoad } from '@/utils/exerciseLoad'
+import { useAppStore } from '@/store/appStore'
 import { clearLocalSession, loadLocalSession, saveLocalSession, type LocalWorkoutSnapshot } from '@/utils/localSession'
 
 /** Treino aberto há mais que isso é encerrado sozinho (como “Finalizar todo o treino”). */
@@ -47,17 +49,52 @@ function unsealSession(sessionId: string): void {
   sealedSessionIds.delete(sessionId)
 }
 
+function sessionDayKey(session: Pick<WorkoutSession, 'startedAt'>): string {
+  return todayKey(new Date(session.startedAt))
+}
+
+/** Encerrado sozinho após 2h30 — não é um treino que a pessoa finalizou. */
+export function isAutoExpiredSession(session: WorkoutSession): boolean {
+  if (!session.completedWithoutData) return false
+  return (session.notes ?? '').includes('Encerrado automaticamente após 2h30')
+}
+
+function attachTemplateExercise(
+  row: WorkoutTemplateExercise,
+  exerciseMap: Map<string, Exercise>,
+): WorkoutTemplateExercise & { exercise: Exercise | null } {
+  const fromCatalog = exerciseMap.get(row.exerciseId) ?? null
+  const customName = row.exerciseName?.trim()
+  if (!fromCatalog) return { ...row, exercise: null }
+  if (!customName || customName === fromCatalog.name) return { ...row, exercise: fromCatalog }
+  return { ...row, exercise: { ...fromCatalog, name: customName } }
+}
+
+/** Some o fantasma de 2h30 quando já existe o treino real no mesmo dia. */
+export function withoutGhostDuplicates(sessions: WorkoutSession[]): WorkoutSession[] {
+  const realKeys = new Set(
+    sessions
+      .filter((item) => item.completed && !isAutoExpiredSession(item))
+      .map((item) => `${item.workoutTemplateId}:${sessionDayKey(item)}`),
+  )
+  return sessions.filter((item) => {
+    if (!isAutoExpiredSession(item)) return true
+    return !realKeys.has(`${item.workoutTemplateId}:${sessionDayKey(item)}`)
+  })
+}
+
 export const workoutService = {
   async getHomeBundle(
     profileId: string,
     householdId?: string,
   ): Promise<{ templates: TemplateWithMeta[]; sessions: WorkoutSession[] }> {
     const hid = householdId ?? ''
-    const [templates, allTemplateExercises, sessions] = await Promise.all([
+    const [templates, allTemplateExercises, rawSessions] = await Promise.all([
       workoutRepository.listTemplates(profileId),
       workoutRepository.listTemplateExercisesByProfile(profileId),
       workoutRepository.listSessions(profileId, 40),
     ])
+    const sessions = withoutGhostDuplicates(rawSessions)
     // Catálogo não bloqueia a home — nomes completos entram ao iniciar o treino.
     let catalog: Exercise[] = []
     if (hid) {
@@ -88,7 +125,7 @@ export const workoutService = {
             : null
         return {
           ...template,
-          exercises: rows.map((row) => ({ ...row, exercise: exerciseMap.get(row.exerciseId) ?? null })),
+          exercises: rows.map((row) => attachTemplateExercise(row, exerciseMap)),
           lastSessionAt: last?.startedAt ?? null,
           averageDurationSeconds: avg,
         }
@@ -99,6 +136,30 @@ export const workoutService = {
   async getTemplatesWithMeta(profileId: string, householdId?: string): Promise<TemplateWithMeta[]> {
     const { templates } = await this.getHomeBundle(profileId, householdId)
     return templates
+  },
+
+  async getTemplateForEdit(
+    profileId: string,
+    householdId: string,
+    templateId: string,
+  ): Promise<{ template: TemplateWithMeta | null; catalog: Exercise[] }> {
+    const [templates, rows, catalog] = await Promise.all([
+      workoutRepository.listTemplates(profileId),
+      workoutRepository.listTemplateExercises(templateId),
+      exerciseRepository.listByHousehold(householdId),
+    ])
+    const found = templates.find((item) => item.id === templateId && isLive(item)) ?? null
+    const exerciseMap = new Map(catalog.map((item) => [item.id, item]))
+    const exercises = rows
+      .filter(isLive)
+      .sort((a, b) => a.order - b.order)
+      .map((row) => attachTemplateExercise(row, exerciseMap))
+    return {
+      catalog,
+      template: found
+        ? { ...found, exercises, lastSessionAt: null, averageDurationSeconds: null }
+        : null,
+    }
   },
 
   recommendedTemplate(templates: TemplateWithMeta[], sessions: WorkoutSession[]): TemplateWithMeta | null {
@@ -115,6 +176,14 @@ export const workoutService = {
     profile: Profile
     template: WorkoutTemplate | TemplateWithMeta
   }): Promise<{ session: WorkoutSession; exercises: WorkoutSessionExercise[] }> {
+    const existing = await this.findActiveSession(params.profile.id)
+    if (existing) {
+      const bundle = await this.loadSessionBundle(existing.id)
+      if (bundle?.exercises.length) {
+        return { session: bundle.session, exercises: bundle.exercises }
+      }
+    }
+
     const meta = params.template as TemplateWithMeta
     const fromMeta =
       Array.isArray(meta.exercises) &&
@@ -135,7 +204,7 @@ export const workoutService = {
       rows = allRows
         .filter(isLive)
         .sort((a, b) => a.order - b.order)
-        .map((row) => ({ ...row, exercise: catalogMap.get(row.exerciseId) ?? null }))
+        .map((row) => attachTemplateExercise(row, catalogMap))
     }
 
     const session: WorkoutSession = {
@@ -163,7 +232,7 @@ export const workoutService = {
         workoutSessionId: session.id,
         exerciseId: row.exerciseId,
         originalExerciseId: row.exerciseId,
-        exerciseName: exercise?.name ?? 'Exercício',
+        exerciseName: row.exerciseName?.trim() || exercise?.name || 'Exercício',
         muscleGroup: exercise?.muscleGroup ?? 'chest',
         equipment: exercise?.equipment ?? 'other',
         youtubeUrl: exercise?.youtubeUrl ?? '',
@@ -231,6 +300,7 @@ export const workoutService = {
       candidates.push(local.session)
     }
 
+    const recent = await workoutRepository.listSessions(params.profile.id, 80)
     const closed: WorkoutSession[] = []
     for (const session of candidates) {
       if (!isStaleOpenSession(session)) continue
@@ -239,14 +309,32 @@ export const workoutService = {
       try {
         const bundle = await this.loadSessionBundle(session.id)
         const localMatch = local?.session.id === session.id ? local : null
+        const current = bundle?.session ?? session
         const exercises = bundle?.exercises?.length
           ? bundle.exercises
           : (localMatch?.exercises ?? [])
         const sets = bundle?.sets?.length ? bundle.sets : (localMatch?.sets ?? [])
+        const alreadyDone = recent.some(
+          (item) =>
+            item.completed &&
+            !isAutoExpiredSession(item) &&
+            item.id !== current.id &&
+            item.workoutTemplateId === current.workoutTemplateId &&
+            sessionDayKey(item) === sessionDayKey(current),
+        )
+        if (alreadyDone) {
+          await this.discardSession({
+            profileId: params.profile.id,
+            session: current,
+            exercises,
+            sets,
+          })
+          continue
+        }
         const result = await this.completeSessionAsLastTime({
           user: params.user,
           profile: params.profile,
-          session: bundle?.session ?? session,
+          session: current,
           exercises,
           sets,
           autoExpired: true,
@@ -290,7 +378,7 @@ export const workoutService = {
     }
   },
 
-  async completeSet(params: {
+  buildCompletedSet(params: {
     user: UserRecord
     profile: Profile
     session: WorkoutSession
@@ -299,9 +387,8 @@ export const workoutService = {
     weight: number
     reps: number
     rir: RirValue
-    snapshot: LocalWorkoutSnapshot
-  }): Promise<ExerciseSet> {
-    const set: ExerciseSet = {
+  }): ExerciseSet {
+    return {
       id: newId(),
       profileId: params.profile.id,
       householdId: params.profile.householdId,
@@ -316,6 +403,22 @@ export const workoutService = {
       completed: true,
       createdAt: Date.now(),
     }
+  },
+
+  async completeSet(params: {
+    user: UserRecord
+    profile: Profile
+    session: WorkoutSession
+    sessionExercise: WorkoutSessionExercise
+    setNumber: number
+    weight: number
+    reps: number
+    rir: RirValue
+    snapshot: LocalWorkoutSnapshot
+  }): Promise<ExerciseSet> {
+    const set = params.snapshot.sets.find(
+      (item) => item.sessionExerciseId === params.sessionExercise.id && item.setNumber === params.setNumber,
+    ) ?? this.buildCompletedSet(params)
     await workoutRepository.saveSet(set)
     const sets = [...params.snapshot.sets.filter((s) => s.id !== set.id), set]
     this.persistLocal({ ...params.snapshot, sets, updatedAt: Date.now() })
@@ -351,15 +454,15 @@ export const workoutService = {
     todaySets: ExerciseSet[]
   }): Promise<ProgressionSummary> {
     await workoutRepository.updateSessionExercise(params.sessionExercise.id, { status: 'completed' })
-    const previous = await this.lastSetsForExercise(
-      params.profile.id,
-      params.sessionExercise.exerciseId,
-      params.session.id,
-    )
     const history = await workoutRepository.listSetsByExercise(
       params.profile.id,
       params.sessionExercise.exerciseId,
     )
+    const others = history.filter((s) => s.completed && s.workoutSessionId !== params.session.id)
+    const lastSessionId = others[0]?.workoutSessionId
+    const previous = lastSessionId
+      ? others.filter((s) => s.workoutSessionId === lastSessionId).sort((a, b) => a.setNumber - b.setNumber)
+      : []
     const records = detectNewRecords(params.todaySets, history, params.session.id)
     for (const record of records) {
       const row: PersonalRecord = {
@@ -398,6 +501,30 @@ export const workoutService = {
       muscleByExerciseId,
     )
     const next = pickNextExercise(decorated, params.current.id, params.preferDifferentMuscle)
+    if (next) {
+      await workoutRepository.updateSessionExercise(next.id, { status: 'active' })
+    }
+    return next
+  },
+
+  async skipAndGoNext(params: {
+    exercises: WorkoutSessionExercise[]
+    catalog: Exercise[]
+    current: WorkoutSessionExercise
+    reason: SkipReason
+  }): Promise<WorkoutSessionExercise | null> {
+    await workoutRepository.updateSessionExercise(params.current.id, {
+      status: 'skipped',
+      skipReason: params.reason,
+    })
+    const muscleByExerciseId = new Map(params.catalog.map((e) => [e.id, e.muscleGroup]))
+    const decorated = withMuscle(
+      params.exercises.map((item) =>
+        item.id === params.current.id ? { ...item, status: 'skipped' as const } : item,
+      ),
+      muscleByExerciseId,
+    )
+    const next = pickNextExercise(decorated, params.current.id, false)
     if (next) {
       await workoutRepository.updateSessionExercise(next.id, { status: 'active' })
     }
@@ -554,6 +681,7 @@ export const workoutService = {
 
     for (const exercise of params.exercises) {
       if (exercise.status === 'skipped' || exercise.status === 'completed') continue
+      if (exercise.status === 'deferred' && exercise.skipReason === 'cannot_today') continue
       const result = await this.completeExerciseAsLastTime({
         user: params.user,
         profile: params.profile,
@@ -618,7 +746,8 @@ export const workoutService = {
 
   persistLocal(snapshot: LocalWorkoutSnapshot): void {
     if (sealedSessionIds.has(snapshot.session.id) || snapshot.session.completed) return
-    saveLocalSession(snapshot.session.profileId, snapshot)
+    const restEndsAt = useAppStore.getState().restEndsAt
+    saveLocalSession(snapshot.session.profileId, { ...snapshot, restEndsAt })
   },
 
   subscribeTemplates: workoutRepository.subscribeTemplates,

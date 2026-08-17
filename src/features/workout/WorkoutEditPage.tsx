@@ -10,7 +10,6 @@ import { Textarea } from '@/components/ui/Textarea'
 import { Toast } from '@/components/ui/Toast'
 import { useFeedback } from '@/hooks/useFeedback'
 import { useSession } from '@/hooks/useSession'
-import { exerciseService } from '@/services/exerciseService'
 import { workoutEditorService } from '@/services/workoutEditorService'
 import { workoutService } from '@/services/workoutService'
 import {
@@ -23,7 +22,7 @@ import {
   type WorkoutTemplateExercise,
 } from '@/types'
 import { isLive } from '@/utils/audit'
-import { ArrowDown, ArrowUp, Plus } from 'lucide-react'
+import { ArrowDown, ArrowUp, Plus, Trash2 } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 
@@ -38,11 +37,13 @@ export function WorkoutEditPage() {
   const [template, setTemplate] = useState<TemplateWithMeta | null>(null)
   const [catalog, setCatalog] = useState<Exercise[]>([])
   const [name, setName] = useState('')
+  const [nameDrafts, setNameDrafts] = useState<Record<string, string>>({})
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [expanded, setExpanded] = useState<string | null>(null)
   const [removeRow, setRemoveRow] = useState<WorkoutTemplateExercise | null>(null)
   const [addOpen, setAddOpen] = useState(false)
+  const [addMode, setAddMode] = useState<'choose' | 'existing' | 'new'>('choose')
   const [pickId, setPickId] = useState('')
   const [newName, setNewName] = useState('')
   const [newMuscle, setNewMuscle] = useState<(typeof MUSCLE_GROUPS)[number]>('chest')
@@ -53,14 +54,15 @@ export function WorkoutEditPage() {
     setLoading(true)
     setError('')
     try {
-      const [templates, exercises] = await Promise.all([
-        workoutService.getTemplatesWithMeta(activeProfile.id, activeProfile.householdId),
-        exerciseService.listByHousehold(activeProfile.householdId),
-      ])
-      const found = templates.find((item) => item.id === templateId) ?? null
+      const { template: found, catalog: exercises } = await workoutService.getTemplateForEdit(
+        activeProfile.id,
+        activeProfile.householdId,
+        templateId,
+      )
       setTemplate(found)
       setName(found?.name ?? '')
       setCatalog(exercises.filter(isLive))
+      setNameDrafts({})
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Não foi possível abrir o treino.')
     } finally {
@@ -129,16 +131,22 @@ export function WorkoutEditPage() {
         if (result.exerciseIdChanged) return [...items.filter((item) => item.id !== next.id), next]
         return items.map((item) => (item.id === exercise.id ? next : item))
       })
-      setTemplate({
-        ...template,
-        exercises: template.exercises.map((item) =>
-          item.id === row.id
-            ? { ...item, exerciseId: next.id, exercise: next }
-            : item.exerciseId === exercise.id && !result.exerciseIdChanged
-              ? { ...item, exercise: next }
-              : item,
-        ),
+      setTemplate((current) => {
+        if (!current) return current
+        return {
+          ...current,
+          exercises: current.exercises.map((item) =>
+            item.id === row.id
+              ? { ...item, exerciseId: next.id, exerciseName: next.name, exercise: next }
+              : item.exerciseId === exercise.id && !result.exerciseIdChanged
+                ? { ...item, exercise: next }
+                : item,
+          ),
+        }
       })
+      if (data.name != null) {
+        setNameDrafts((drafts) => ({ ...drafts, [row.id]: next.name }))
+      }
       show()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Não foi possível salvar o exercício.')
@@ -163,9 +171,28 @@ export function WorkoutEditPage() {
   async function confirmRemove() {
     if (!user || !template || !removeRow) return
     await workoutEditorService.archiveTemplateExercise(removeRow.id, user.id)
-    setTemplate({ ...template, exercises: template.exercises.filter((row) => row.id !== removeRow.id) })
+    const remaining = template.exercises.filter((row) => row.id !== removeRow.id)
+    setTemplate({ ...template, exercises: remaining })
+    if (expanded === removeRow.id) setExpanded(null)
+    if (remaining.length > 0) await workoutEditorService.reorderTemplateExercises(remaining, user.id)
     setRemoveRow(null)
     show()
+  }
+
+  function closeAdd() {
+    setAddOpen(false)
+    setAddMode('choose')
+    setPickId('')
+    setNewName('')
+    setNewMuscle('chest')
+    setNewEquip('dumbbell')
+  }
+
+  function openAdd() {
+    setAddMode('choose')
+    setPickId('')
+    setNewName('')
+    setAddOpen(true)
   }
 
   async function addExisting() {
@@ -179,8 +206,7 @@ export function WorkoutEditPage() {
     })
     const exercise = catalog.find((item) => item.id === pickId) ?? null
     setTemplate({ ...template, exercises: [...template.exercises, { ...row, exercise }] })
-    setAddOpen(false)
-    setPickId('')
+    closeAdd()
     show()
   }
 
@@ -197,8 +223,7 @@ export function WorkoutEditPage() {
     })
     setCatalog((items) => [...items, created.exercise])
     setTemplate({ ...template, exercises: [...template.exercises, { ...created.row, exercise: created.exercise }] })
-    setAddOpen(false)
-    setNewName('')
+    closeAdd()
     show()
   }
 
@@ -246,7 +271,7 @@ export function WorkoutEditPage() {
 
           <div className="mt-6 flex items-center justify-between">
             <h2 className="font-display text-lg">Exercícios</h2>
-            <Button size="md" variant="secondary" onClick={() => setAddOpen(true)}>
+            <Button size="md" variant="secondary" onClick={openAdd}>
               <Plus size={16} /> Adicionar
             </Button>
           </div>
@@ -257,11 +282,12 @@ export function WorkoutEditPage() {
             {rows.map((row, index) => {
               const exercise = row.exercise
               const open = expanded === row.id
+              const shownName = nameDrafts[row.id] ?? row.exerciseName ?? exercise?.name ?? 'Exercício'
               return (
                 <Card key={row.id}>
                   <div className="flex items-start justify-between gap-2">
                     <button type="button" className="text-left" onClick={() => setExpanded(open ? null : row.id)}>
-                      <p className="font-display text-lg">{exercise?.name ?? 'Exercício'}</p>
+                      <p className="font-display text-lg">{shownName}</p>
                       <p className="text-sm text-muted">
                         {row.sets} séries · {row.repMin}–{row.repMax} reps
                       </p>
@@ -273,17 +299,32 @@ export function WorkoutEditPage() {
                       <button type="button" className="rounded-xl bg-card2 p-2" onClick={() => void move(index, 1)}>
                         <ArrowDown size={16} />
                       </button>
+                      <button
+                        type="button"
+                        className="rounded-xl bg-card2 p-2 text-danger"
+                        aria-label={`Excluir ${shownName}`}
+                        onClick={() => setRemoveRow(row)}
+                      >
+                        <Trash2 size={16} />
+                      </button>
                     </div>
                   </div>
-                  {open && exercise ? (
+                  {open ? (
                     <div className="mt-4 space-y-3">
+                      {exercise ? (
+                        <>
                       <label className="block text-sm text-muted">
                         Nome do exercício
                         <Input
                           className="mt-1"
-                          defaultValue={exercise.name}
+                          value={nameDrafts[row.id] ?? row.exerciseName ?? exercise.name}
+                          onChange={(e) =>
+                            setNameDrafts((drafts) => ({ ...drafts, [row.id]: e.target.value }))
+                          }
                           onBlur={(e) => {
-                            if (e.target.value.trim() !== exercise.name) void saveExercise(row, exercise, { name: e.target.value })
+                            const next = e.target.value.trim()
+                            const current = row.exerciseName ?? exercise.name
+                            if (next && next !== current) void saveExercise(row, exercise, { name: next })
                           }}
                         />
                       </label>
@@ -413,8 +454,12 @@ export function WorkoutEditPage() {
                             ))}
                         </div>
                       </div>
+                        </>
+                      ) : (
+                        <p className="text-sm text-muted">Não foi possível carregar os dados deste exercício.</p>
+                      )}
                       <Button variant="danger" className="w-full" onClick={() => setRemoveRow(row)}>
-                        Remover exercício
+                        Excluir da lista
                       </Button>
                     </div>
                   ) : null}
@@ -427,18 +472,50 @@ export function WorkoutEditPage() {
 
       <ConfirmDialog
         open={Boolean(removeRow)}
-        title="Remover exercício?"
-        message={HISTORY_WARNING}
-        confirmLabel="Remover"
+        title="Excluir exercício da lista?"
+        message="Ele sai deste treino daqui pra frente. O histórico de treinos já feitos não muda."
+        confirmLabel="Excluir"
         danger
         onCancel={() => setRemoveRow(null)}
         onConfirm={() => void confirmRemove()}
       />
 
-      <Modal open={addOpen} onClose={() => setAddOpen(false)} title="Adicionar exercício">
-        <p className="text-sm text-muted">Escolha um exercício existente ou cadastre um novo.</p>
-        {unused.length > 0 ? (
+      <Modal
+        open={addOpen}
+        onClose={closeAdd}
+        title={
+          addMode === 'existing'
+            ? 'Exercício já cadastrado'
+            : addMode === 'new'
+              ? 'Criar exercício novo'
+              : 'Adicionar exercício'
+        }
+      >
+        {addMode === 'choose' ? (
           <>
+            <p className="text-sm text-muted">O que você quer fazer?</p>
+            <div className="mt-4 grid grid-cols-1 gap-2">
+              <Button
+                size="xl"
+                variant="secondary"
+                disabled={unused.length === 0}
+                onClick={() => setAddMode('existing')}
+              >
+                Adicionar exercício já cadastrado
+              </Button>
+              {unused.length === 0 ? (
+                <p className="text-xs text-muted">Todos os exercícios cadastrados já estão neste treino.</p>
+              ) : null}
+              <Button size="xl" onClick={() => setAddMode('new')}>
+                Criar exercício do zero
+              </Button>
+            </div>
+          </>
+        ) : null}
+
+        {addMode === 'existing' ? (
+          <>
+            <p className="text-sm text-muted">Escolha um exercício que já existe no catálogo e ainda não está neste treino.</p>
             <Select className="mt-3" value={pickId} onChange={(e) => setPickId(e.target.value)}>
               <option value="">Selecionar da lista</option>
               {unused.map((item) => (
@@ -447,32 +524,43 @@ export function WorkoutEditPage() {
                 </option>
               ))}
             </Select>
-            <Button className="mt-3 w-full" disabled={!pickId} onClick={() => void addExisting()}>
-              Adicionar selecionado
+            <Button className="mt-4 w-full" size="xl" disabled={!pickId} onClick={() => void addExisting()}>
+              Adicionar ao treino
+            </Button>
+            <Button className="mt-2 w-full" variant="ghost" onClick={() => setAddMode('choose')}>
+              ← Voltar
             </Button>
           </>
         ) : null}
-        <p className="mt-5 text-sm font-semibold">Novo exercício</p>
-        <Input className="mt-2" placeholder="Nome" value={newName} onChange={(e) => setNewName(e.target.value)} />
-        <div className="mt-2 grid grid-cols-2 gap-2">
-          <Select value={newMuscle} onChange={(e) => setNewMuscle(e.target.value as typeof newMuscle)}>
-            {MUSCLE_GROUPS.map((group) => (
-              <option key={group} value={group}>
-                {MUSCLE_LABELS[group]}
-              </option>
-            ))}
-          </Select>
-          <Select value={newEquip} onChange={(e) => setNewEquip(e.target.value as typeof newEquip)}>
-            {EQUIPMENT.map((item) => (
-              <option key={item} value={item}>
-                {EQUIPMENT_LABELS[item]}
-              </option>
-            ))}
-          </Select>
-        </div>
-        <Button className="mt-3 w-full" disabled={!newName.trim()} onClick={() => void addNew()}>
-          Criar e adicionar
-        </Button>
+
+        {addMode === 'new' ? (
+          <>
+            <p className="text-sm text-muted">Cadastre um exercício novo. Ele entra neste treino e fica disponível para os outros.</p>
+            <Input className="mt-3" placeholder="Nome (ex.: Crucifixo no cabo)" value={newName} onChange={(e) => setNewName(e.target.value)} />
+            <div className="mt-2 grid grid-cols-2 gap-2">
+              <Select value={newMuscle} onChange={(e) => setNewMuscle(e.target.value as typeof newMuscle)}>
+                {MUSCLE_GROUPS.map((group) => (
+                  <option key={group} value={group}>
+                    {MUSCLE_LABELS[group]}
+                  </option>
+                ))}
+              </Select>
+              <Select value={newEquip} onChange={(e) => setNewEquip(e.target.value as typeof newEquip)}>
+                {EQUIPMENT.map((item) => (
+                  <option key={item} value={item}>
+                    {EQUIPMENT_LABELS[item]}
+                  </option>
+                ))}
+              </Select>
+            </div>
+            <Button className="mt-4 w-full" size="xl" disabled={!newName.trim()} onClick={() => void addNew()}>
+              Criar e adicionar ao treino
+            </Button>
+            <Button className="mt-2 w-full" variant="ghost" onClick={() => setAddMode('choose')}>
+              ← Voltar
+            </Button>
+          </>
+        ) : null}
       </Modal>
     </AppShell>
   )

@@ -10,9 +10,10 @@ type Props = {
   min?: number
   suffix?: string
   compact?: boolean
+  disabled?: boolean
 }
 
-export function NumberStepper({ value, onChange, step = 1, min = 0, suffix, compact = false }: Props) {
+export function NumberStepper({ value, onChange, step = 1, min = 0, suffix, compact = false, disabled = false }: Props) {
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState(String(value))
 
@@ -28,8 +29,8 @@ export function NumberStepper({ value, onChange, step = 1, min = 0, suffix, comp
   }
 
   const sideBtn = compact
-    ? 'flex h-11 w-11 items-center justify-center rounded-xl bg-card2 text-ink active:scale-95 sm:h-14 sm:w-14 sm:rounded-2xl'
-    : 'flex h-14 w-14 items-center justify-center rounded-2xl bg-card2 text-ink active:scale-95'
+    ? 'flex h-11 w-11 items-center justify-center rounded-xl bg-card2 text-ink active:scale-95 disabled:opacity-40 sm:h-14 sm:w-14 sm:rounded-2xl'
+    : 'flex h-14 w-14 items-center justify-center rounded-2xl bg-card2 text-ink active:scale-95 disabled:opacity-40'
   const valueBtn = compact
     ? 'h-11 min-w-20 flex-1 rounded-xl bg-card2 text-center text-xl font-semibold sm:h-14 sm:min-w-24 sm:rounded-2xl sm:text-2xl'
     : 'h-14 min-w-24 flex-1 rounded-2xl bg-card2 text-center text-2xl font-semibold'
@@ -40,6 +41,7 @@ export function NumberStepper({ value, onChange, step = 1, min = 0, suffix, comp
       <button
         type="button"
         className={sideBtn}
+        disabled={disabled}
         onClick={() => onChange(Math.max(min, Number((value - step).toFixed(2))))}
         aria-label="Diminuir"
       >
@@ -61,6 +63,7 @@ export function NumberStepper({ value, onChange, step = 1, min = 0, suffix, comp
         <button
           type="button"
           className={valueBtn}
+          disabled={disabled}
           onClick={() => {
             setDraft(String(value).replace('.', ','))
             setEditing(true)
@@ -77,6 +80,7 @@ export function NumberStepper({ value, onChange, step = 1, min = 0, suffix, comp
       <button
         type="button"
         className={sideBtn}
+        disabled={disabled}
         onClick={() => onChange(Number((value + step).toFixed(2)))}
         aria-label="Aumentar"
       >

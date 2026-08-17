@@ -41,7 +41,9 @@ export const workoutEditorService = {
 
   async updateTemplateExercise(
     rowId: string,
-    data: Partial<Pick<WorkoutTemplateExercise, 'sets' | 'repMin' | 'repMax' | 'restSeconds' | 'notes' | 'exerciseId'>>,
+    data: Partial<
+      Pick<WorkoutTemplateExercise, 'sets' | 'repMin' | 'repMax' | 'restSeconds' | 'notes' | 'exerciseId' | 'exerciseName'>
+    >,
     userId: string,
   ): Promise<void> {
     if (data.sets != null && data.sets < 1) throw new Error('Séries deve ser pelo menos 1.')
@@ -97,6 +99,7 @@ export const workoutEditorService = {
       householdId: params.profile.householdId,
       templateId: params.template.id,
       exerciseId: exercise.id,
+      exerciseName: exercise.name,
       order: params.order,
       sets: exercise.defaultSets || 3,
       repMin: exercise.defaultRepMin,
@@ -153,6 +156,7 @@ export const workoutEditorService = {
       householdId: params.profile.householdId,
       templateId: params.template.id,
       exerciseId: exercise.id,
+      exerciseName: exercise.name,
       order: params.order,
       sets: 3,
       repMin: 6,
@@ -200,8 +204,9 @@ export const workoutEditorService = {
   },
 
   /**
-   * Edita o exercício a partir do treino de um perfil.
-   * Se outro perfil também usa o mesmo exercício do catálogo, clona para não afetar os outros.
+   * Edita o exercício a partir de uma linha do treino.
+   * Clona o catálogo se outra linha (mesmo perfil ou outro) também usa o mesmo exercício.
+   * O nome fica gravado na linha do treino para não voltar ao valor do catálogo.
    */
   async updateExerciseInTemplate(params: {
     profileId: string
@@ -231,20 +236,31 @@ export const workoutEditorService = {
     if (data.name != null) data.name = requireName(data.name, 'Nome do exercício')
     if (data.defaultSets != null) requirePositive(data.defaultSets, 'Séries')
 
-    const usageRows = await workoutRepository.listTemplateExercisesByExercise(params.exercise.id)
-    const sharedWithOtherProfile = usageRows.some(
-      (row) => isLive(row) && row.profileId !== params.profileId,
-    )
+    let usageRows: WorkoutTemplateExercise[] | null = null
+    try {
+      usageRows = await workoutRepository.listTemplateExercisesByExercise(params.exercise.id)
+    } catch {
+      usageRows = null
+    }
+    const usedInOtherRow =
+      usageRows == null || usageRows.some((row) => isLive(row) && row.id !== params.templateExerciseId)
+    const nextName = data.name ?? params.exercise.name
+    const audit = auditFields(params.userId)
 
-    if (!sharedWithOtherProfile) {
-      await exerciseRepository.update(params.exercise.id, { ...data, ...auditFields(params.userId) })
-      return { exercise: { ...params.exercise, ...data }, exerciseIdChanged: false }
+    if (!usedInOtherRow) {
+      await exerciseRepository.update(params.exercise.id, { ...data, ...audit })
+      await workoutRepository.updateTemplateExercise(params.templateExerciseId, {
+        exerciseName: nextName,
+        ...audit,
+      })
+      return { exercise: { ...params.exercise, ...data, name: nextName }, exerciseIdChanged: false }
     }
 
     const clone: Exercise = {
       ...params.exercise,
       ...data,
       id: newId(),
+      name: nextName,
       isPlaceholder: false,
       active: true,
       archivedAt: null,
@@ -256,7 +272,8 @@ export const workoutEditorService = {
     await commitAll([{ collection: 'exercises', data: clone }])
     await workoutRepository.updateTemplateExercise(params.templateExerciseId, {
       exerciseId: clone.id,
-      ...auditFields(params.userId),
+      exerciseName: nextName,
+      ...audit,
     })
     return { exercise: clone, exerciseIdChanged: true }
   },

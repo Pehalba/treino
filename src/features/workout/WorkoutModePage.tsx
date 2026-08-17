@@ -35,7 +35,7 @@ import { EQUIPMENT_LABELS, MUSCLE_LABELS } from '@/types'
 import { formatDateLong, formatTimer } from '@/utils/dates'
 import { hapticSuccess, hapticRecord } from '@/utils/haptics'
 import { loadLocalSession } from '@/utils/localSession'
-import { pickNextExercise, withMuscle } from '@/utils/muscleOrder'
+import { isOpenExerciseStatus, pickNextExercise, withMuscle } from '@/utils/muscleOrder'
 import { getLastLoad, saveLastLoad } from '@/utils/exerciseLoad'
 import { workingWeight } from '@/utils/volume'
 import { useAppStore } from '@/store/appStore'
@@ -81,23 +81,23 @@ export function WorkoutModePage() {
   const [editWeight, setEditWeight] = useState(0)
   const [editReps, setEditReps] = useState(0)
   const [savingEdit, setSavingEdit] = useState(false)
+  const [savingSet, setSavingSet] = useState(false)
+  const savingSetRef = useRef(false)
   const [timerOpen, setTimerOpen] = useState(false)
   const [timerMinutes, setTimerMinutes] = useState(2)
   const setMinimizedWorkout = useAppStore((s) => s.setMinimizedWorkout)
+  const restEndsAt = useAppStore((s) => s.restEndsAt)
   const [progressions, setProgressions] = useState(0)
   const [records, setRecords] = useState(0)
 
-  const current = exercises.find((e) => e.id === currentId) ?? exercises.find((e) => e.status === 'active') ?? exercises.find((e) => e.status !== 'completed')
+  const current =
+    exercises.find((e) => e.id === currentId && (e.status === 'completed' || isOpenExerciseStatus(e))) ??
+    exercises.find((e) => e.status === 'active') ??
+    exercises.find((e) => isOpenExerciseStatus(e))
   const exercise = catalog.find((e) => e.id === current?.exerciseId)
   const currentSets = sets.filter((s) => s.sessionExerciseId === current?.id && s.completed).sort((a, b) => a.setNumber - b.setNumber)
   const nextSetNumber = (currentSets[currentSets.length - 1]?.setNumber ?? 0) + 1
-  const hasNextExercise =
-    !!current &&
-    exercises.some(
-      (e) =>
-        e.id !== current.id &&
-        (e.status === 'pending' || e.status === 'active' || e.status === 'deferred'),
-    )
+  const hasNextExercise = !!current && exercises.some((e) => e.id !== current.id && isOpenExerciseStatus(e))
   const timerSeconds = activeProfile?.timerSeconds && activeProfile.timerSeconds > 0 ? activeProfile.timerSeconds : 120
 
   useEffect(() => {
@@ -146,10 +146,11 @@ export function WorkoutModePage() {
           setSets(localMatch.sets)
           const active =
             localMatch.exercises.find((e) => e.status === 'active') ??
-            localMatch.exercises.find((e) => e.status === 'deferred' || e.status === 'pending') ??
+            localMatch.exercises.find((e) => isOpenExerciseStatus(e)) ??
             localMatch.exercises[0]
           setCurrentId(active?.id ?? localMatch.currentExerciseId)
           setLoading(false)
+          if (localMatch.restEndsAt) rest.restore(localMatch.restEndsAt)
         }
 
         const bundle = await workoutService.loadSessionBundle(id)
@@ -190,9 +191,12 @@ export function WorkoutModePage() {
         }
         const active =
           exercisesData.find((e) => e.status === 'active') ??
-          exercisesData.find((e) => e.status === 'deferred' || e.status === 'pending') ??
+          exercisesData.find((e) => isOpenExerciseStatus(e)) ??
           exercisesData[0]
         setCurrentId(active?.id ?? null)
+        for (const row of exercisesData) {
+          void workoutService.lastSetsForExercise(profile.id, row.exerciseId, id)
+        }
         unsubEx = workoutService.subscribeSessionExercises(id, (items) => {
           if (leavingRef.current) return
           // Evita limpar a UI se o snapshot local chegou antes da gravação no Firestore.
@@ -274,7 +278,7 @@ export function WorkoutModePage() {
       currentExerciseId: currentId,
       updatedAt: Date.now(),
     })
-  }, [session, exercises, sets, currentId, activeProfile?.id])
+  }, [session, exercises, sets, currentId, activeProfile?.id, restEndsAt])
 
   const alternatives = useMemo(() => {
     if (!exercise) return []
@@ -299,13 +303,14 @@ export function WorkoutModePage() {
   function persistSnapshot(
     nextExercises: WorkoutSessionExercise[] = exercises,
     nextSets: ExerciseSet[] = sets,
+    nextCurrentId: string | null = currentId,
   ) {
     if (!session) return
     workoutService.persistLocal({
       session,
       exercises: nextExercises,
       sets: nextSets,
-      currentExerciseId: currentId,
+      currentExerciseId: nextCurrentId,
       updatedAt: Date.now(),
     })
   }
@@ -326,6 +331,7 @@ export function WorkoutModePage() {
     leavingRef.current = true
     setClosing(true)
     setMinimizedWorkout(null)
+    rest.skip()
     try {
       const updated = await workoutService.finishSession({
         profileId: activeProfile.id,
@@ -333,7 +339,9 @@ export function WorkoutModePage() {
         exercises: nextExercises,
         sets: nextSets,
       })
+      setSession(updated)
       setFinished(updated)
+      setClosing(false)
     } catch (err) {
       leavingRef.current = false
       setClosing(false)
@@ -368,14 +376,17 @@ export function WorkoutModePage() {
     })
     setExercises(moved)
     setCurrentId(next.id)
-    persistSnapshot(moved, nextSets)
+    persistSnapshot(moved, nextSets, next.id)
     void workoutService.updateSessionExercise(completedId, { status: 'completed' })
     void workoutService.updateSessionExercise(next.id, { status: 'active' })
   }
 
   async function completeSet() {
     if (!user || !activeProfile || !session || !current) return
-    const set = await workoutService.completeSet({
+    if (savingSetRef.current) return
+    savingSetRef.current = true
+    setSavingSet(true)
+    const set = workoutService.buildCompletedSet({
       user,
       profile: activeProfile,
       session,
@@ -384,20 +395,32 @@ export function WorkoutModePage() {
       weight,
       reps,
       rir: 1,
-      snapshot: { session, exercises, sets, currentExerciseId: currentId, updatedAt: Date.now() },
     })
     const nextSets = [...sets, set]
+    const lastSet = nextSetNumber >= current.sets
     setSets(nextSets)
     hapticSuccess()
     persistSnapshot(exercises, nextSets)
     saveLastLoad(activeProfile.id, current.exerciseId, { weight, reps })
 
-    if (nextSetNumber >= current.sets) {
+    if (lastSet) {
       const completedId = current.id
       const nextExercises = exercises.map((e) =>
         e.id === completedId ? { ...e, status: 'completed' as const } : e,
       )
-      advanceAfterExercise(completedId, nextExercises, nextSets)
+      void workoutService
+        .completeSet({
+          user,
+          profile: activeProfile,
+          session,
+          sessionExercise: current,
+          setNumber: set.setNumber,
+          weight,
+          reps,
+          rir: 1,
+          snapshot: { session, exercises: nextExercises, sets: nextSets, currentExerciseId: currentId, updatedAt: Date.now() },
+        })
+        .catch((err) => console.error(err))
       void workoutService
         .completeExercise({
           profile: activeProfile,
@@ -407,6 +430,31 @@ export function WorkoutModePage() {
         })
         .then(trackSummary)
         .catch((err) => console.error(err))
+      window.setTimeout(() => {
+        advanceAfterExercise(completedId, nextExercises, nextSets)
+        savingSetRef.current = false
+        setSavingSet(false)
+      }, 450)
+      return
+    }
+
+    try {
+      await workoutService.completeSet({
+        user,
+        profile: activeProfile,
+        session,
+        sessionExercise: current,
+        setNumber: set.setNumber,
+        weight,
+        reps,
+        rir: 1,
+        snapshot: { session, exercises, sets: nextSets, currentExerciseId: currentId, updatedAt: Date.now() },
+      })
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : 'Não foi possível salvar a série.')
+    } finally {
+      savingSetRef.current = false
+      setSavingSet(false)
     }
   }
 
@@ -483,7 +531,40 @@ export function WorkoutModePage() {
       setOccupiedOpen(true)
       return
     }
-    await defer(reason === 'cannot_today' ? 'cannot_today' : 'want_other', false)
+    if (reason === 'want_other') {
+      setReplaceOpen(true)
+      return
+    }
+    await skipToday()
+  }
+
+  async function skipToday() {
+    if (!current) return
+    setActionError('')
+    try {
+      rest.skip()
+      const next = await workoutService.skipAndGoNext({
+        exercises,
+        catalog,
+        current,
+        reason: 'cannot_today',
+      })
+      const moved = exercises.map((e) => {
+        if (e.id === current.id) return { ...e, status: 'skipped' as const, skipReason: 'cannot_today' as const }
+        if (next && e.id === next.id) return { ...e, status: 'active' as const }
+        return e
+      })
+      setExercises(moved)
+      setOccupiedOpen(false)
+      if (next) {
+        setCurrentId(next.id)
+        persistSnapshot(moved, sets, next.id)
+      } else {
+        await finish(moved)
+      }
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : 'Não foi possível pular o exercício.')
+    }
   }
 
   async function defer(reason: SkipReason, preferDifferentMuscle: boolean) {
@@ -495,16 +576,19 @@ export function WorkoutModePage() {
       reason,
       preferDifferentMuscle,
     })
+    const moved = exercises.map((e) => {
+      if (e.id === current.id) return { ...e, status: 'deferred' as const, skipReason: reason }
+      if (next && e.id === next.id) return { ...e, status: 'active' as const }
+      return e
+    })
+    setExercises(moved)
     setOccupiedOpen(false)
-    setExercises((items) =>
-      items.map((e) => {
-        if (e.id === current.id) return { ...e, status: 'deferred', skipReason: reason }
-        if (next && e.id === next.id) return { ...e, status: 'active' }
-        return e
-      }),
-    )
-    if (next) setCurrentId(next.id)
-    else await finish()
+    if (next) {
+      setCurrentId(next.id)
+      persistSnapshot(moved, sets, next.id)
+    } else {
+      await finish(moved)
+    }
   }
 
   async function replace(ex: Exercise) {
@@ -554,9 +638,12 @@ export function WorkoutModePage() {
       })
       setExercises(result.exercises)
       setSets(result.sets)
+      setSession(result.session)
       setFinished(result.session)
       setDoneSummary(null)
       setFinishAsLastOpen(false)
+      setFinishingAsLast(false)
+      setClosing(false)
     } catch (err) {
       leavingRef.current = false
       setClosing(false)
@@ -606,7 +693,6 @@ export function WorkoutModePage() {
 
   function minimize() {
     if (!session) return
-    rest.skip()
     setMinimizedWorkout({ id: session.id, name: session.templateName })
     navigate('/')
   }
@@ -636,7 +722,7 @@ export function WorkoutModePage() {
     }
   }
 
-  if (loading || cancelling || closing) {
+  if ((loading || cancelling || closing) && !finished) {
     return (
       <div className="min-h-svh bg-bg p-4">
         <Skeleton className="h-10 w-40" />
@@ -724,15 +810,26 @@ export function WorkoutModePage() {
           <div className="mt-2 flex flex-wrap gap-1">
             {exercises.map((e, i) => {
               const done = e.status === 'completed'
+              const skipped = e.status === 'skipped'
               const active = e.id === current.id
               return (
                 <button
                   key={e.id}
                   type="button"
                   disabled={!done && !active}
-                  title={done ? `Revisar exercício ${i + 1}` : `Exercício ${i + 1}`}
+                  title={
+                    skipped
+                      ? `Exercício ${i + 1} pulado hoje`
+                      : done
+                        ? `Revisar exercício ${i + 1}`
+                        : `Exercício ${i + 1}`
+                  }
                   aria-label={
-                    done ? `Editar séries do exercício ${i + 1}` : `Exercício ${i + 1}`
+                    skipped
+                      ? `Exercício ${i + 1} pulado`
+                      : done
+                        ? `Editar séries do exercício ${i + 1}`
+                        : `Exercício ${i + 1}`
                   }
                   onClick={() => {
                     if (done) reopenCompletedExercise(e)
@@ -740,11 +837,13 @@ export function WorkoutModePage() {
                   className={
                     done
                       ? 'h-2.5 w-2.5 rounded-full bg-accent'
-                      : e.status === 'deferred'
-                        ? 'h-2.5 w-2.5 rounded-full bg-warn'
-                        : active
-                          ? 'h-2.5 w-2.5 rounded-full bg-ink'
-                          : 'h-2.5 w-2.5 rounded-full bg-card2'
+                      : skipped
+                        ? 'h-2.5 w-2.5 rounded-full bg-card2 opacity-40'
+                        : e.status === 'deferred'
+                          ? 'h-2.5 w-2.5 rounded-full bg-warn'
+                          : active
+                            ? 'h-2.5 w-2.5 rounded-full bg-ink'
+                            : 'h-2.5 w-2.5 rounded-full bg-card2'
                   }
                 />
               )
@@ -842,12 +941,14 @@ export function WorkoutModePage() {
                 weight={weight}
                 reps={reps}
                 increment={weightIncrement}
+                saving={savingSet}
+                savingLabel={nextSetNumber > current.sets ? 'Carregando…' : 'Salvando…'}
                 onWeight={changeWeight}
                 onReps={changeReps}
                 onPlannedSets={(value) => void changePlannedSets(value)}
                 onComplete={() => void completeSet()}
               />
-              <Button className="mt-4 w-full" variant="ghost" onClick={() => setSkipOpen(true)}>
+              <Button className="mt-4 w-full" variant="ghost" onClick={() => setSkipOpen(true)} disabled={savingSet}>
                 Trocar / Pular
               </Button>
             </>
@@ -868,10 +969,10 @@ export function WorkoutModePage() {
 
       {!doneSummary ? (
         <div className="mt-8 grid grid-cols-1 gap-2 sm:grid-cols-2">
-          <Button variant="ghost" onClick={() => setFinishExerciseOpen(true)}>
+          <Button variant="ghost" onClick={() => setFinishExerciseOpen(true)} disabled={savingSet}>
             Finalizar exercício
           </Button>
-          <Button variant="ghost" onClick={() => setFinishAsLastOpen(true)}>
+          <Button variant="ghost" onClick={() => setFinishAsLastOpen(true)} disabled={savingSet}>
             Finalizar todo o treino
           </Button>
         </div>

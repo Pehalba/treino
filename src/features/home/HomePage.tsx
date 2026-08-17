@@ -9,6 +9,7 @@ import { Input } from '@/components/ui/Input'
 import { Modal } from '@/components/ui/Modal'
 import { ProgressBar } from '@/components/ui/Progress'
 import { Skeleton } from '@/components/ui/Skeleton'
+import { useRestClock } from '@/hooks/useRestTimer'
 import { useSession } from '@/hooks/useSession'
 import { dashboardService } from '@/services/dashboardService'
 import { nutritionService } from '@/services/nutritionService'
@@ -24,7 +25,7 @@ import type {
   WorkoutSession,
 } from '@/types'
 import { PROFILE_GOAL_LABELS } from '@/types'
-import { formatDate, formatDuration, todayKey, weekStart } from '@/utils/dates'
+import { formatDate, formatDuration, formatTimer, todayKey, weekStart } from '@/utils/dates'
 import { formatGrams, formatKcal, formatKg, parseLocaleNumber } from '@/utils/format'
 import { clearLocalSession, loadLocalSession } from '@/utils/localSession'
 import { withTimeout } from '@/utils/withTimeout'
@@ -107,6 +108,7 @@ function TapCard({
 export function HomePage() {
   const { user, activeProfile, patchActiveProfile } = useSession()
   const navigate = useNavigate()
+  const { remaining: restRemaining, running: restRunning } = useRestClock()
   const [templates, setTemplates] = useState<TemplateWithMeta[]>([])
   const [sessions, setSessions] = useState<WorkoutSession[]>([])
   const [logs, setLogs] = useState<FoodLog[]>([])
@@ -321,7 +323,7 @@ export function HomePage() {
               <WorkoutName name={active.templateName} />
             </h2>
             <Button className="mt-4 w-full" size="xl" onClick={() => navigate(`/treino/${active.id}`)}>
-              Continuar
+              {restRunning ? `Continuar · ${formatTimer(restRemaining)}` : 'Continuar'}
             </Button>
           </Card>
         )

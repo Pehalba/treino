@@ -6,7 +6,7 @@ import { EditButton } from '@/components/ui/EditButton'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { Skeleton } from '@/components/ui/Skeleton'
 import { useSession } from '@/hooks/useSession'
-import { workoutService } from '@/services/workoutService'
+import { withoutGhostDuplicates, workoutService } from '@/services/workoutService'
 import type { TemplateWithMeta, WorkoutSession } from '@/types'
 import { formatDateLong, formatDuration } from '@/utils/dates'
 import { useEffect, useState } from 'react'
@@ -69,14 +69,14 @@ export function WorkoutsPage() {
       )}
 
       <h2 className="mt-8 mb-3 font-display text-lg tracking-wide uppercase">Histórico</h2>
-      {sessions.filter((s) => s.completed).length === 0 ? (
+      {withoutGhostDuplicates(sessions).filter((s) => s.completed).length === 0 ? (
         <EmptyState
           title="Sem histórico ainda"
           description="Quando você finalizar um treino, ele aparece aqui."
         />
       ) : (
         <div className="space-y-2">
-          {sessions
+          {withoutGhostDuplicates(sessions)
             .filter((s) => s.completed)
             .map((s) => (
               <Card key={s.id} className="flex items-center justify-between">

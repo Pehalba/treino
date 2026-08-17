@@ -100,6 +100,8 @@ export function SetForm({
   onReps,
   onPlannedSets,
   onComplete,
+  saving,
+  savingLabel,
 }: {
   setNumber: number
   plannedSets: number
@@ -110,6 +112,8 @@ export function SetForm({
   onReps: (v: number) => void
   onPlannedSets: (v: number) => void
   onComplete: () => void
+  saving?: boolean
+  savingLabel?: string
 }) {
   return (
     <section className="mt-4 rounded-2xl bg-card p-3 sm:mt-5 sm:rounded-3xl sm:p-4">
@@ -117,18 +121,19 @@ export function SetForm({
         Série {setNumber} de {plannedSets}
       </h3>
       <p className="mt-2 text-xs text-muted sm:mt-3 sm:text-sm">Carga</p>
-      <NumberStepper compact value={weight} onChange={onWeight} step={increment} suffix="kg" />
+      <NumberStepper compact value={weight} onChange={onWeight} step={increment} suffix="kg" disabled={saving} />
       <p className="mt-3 text-xs text-muted sm:mt-4 sm:text-sm">Repetições</p>
-      <NumberStepper compact value={reps} onChange={onReps} step={1} min={0} />
+      <NumberStepper compact value={reps} onChange={onReps} step={1} min={0} disabled={saving} />
       <p className="mt-3 text-xs text-muted sm:mt-4 sm:text-sm">Quantas séries vou fazer</p>
       <div className="mt-1.5 grid grid-cols-4 gap-1.5 sm:mt-2 sm:gap-2">
         {[1, 2, 3, 4].map((value) => (
           <button
             key={value}
             type="button"
+            disabled={saving}
             onClick={() => onPlannedSets(value)}
             className={cn(
-              'min-h-10 rounded-xl text-sm font-semibold sm:min-h-12 sm:rounded-2xl',
+              'min-h-10 rounded-xl text-sm font-semibold sm:min-h-12 sm:rounded-2xl disabled:opacity-50',
               plannedSets === value
                 ? 'bg-accent font-bold text-[#08090B]'
                 : 'bg-card2 text-ink',
@@ -138,8 +143,8 @@ export function SetForm({
           </button>
         ))}
       </div>
-      <Button className="mt-3 w-full sm:mt-5" size="lg" onClick={onComplete}>
-        ✓ Concluir série
+      <Button className="mt-3 w-full sm:mt-5" size="lg" onClick={onComplete} disabled={saving}>
+        {saving ? savingLabel || 'Carregando…' : '✓ Concluir série'}
       </Button>
     </section>
   )

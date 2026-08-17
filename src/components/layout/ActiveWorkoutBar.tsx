@@ -1,14 +1,18 @@
 import { useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { useRestClock } from '@/hooks/useRestTimer'
 import { useSession } from '@/hooks/useSession'
 import { workoutService, MAX_WORKOUT_DURATION_MS } from '@/services/workoutService'
 import { useAppStore } from '@/store/appStore'
+import { formatTimer } from '@/utils/dates'
 import { clearLocalSession, loadLocalSession } from '@/utils/localSession'
 
 export function ActiveWorkoutBar() {
   const { user, activeProfile } = useSession()
   const workout = useAppStore((s) => s.minimizedWorkout)
   const setMinimizedWorkout = useAppStore((s) => s.setMinimizedWorkout)
+  const setRestEndsAt = useAppStore((s) => s.setRestEndsAt)
+  const { remaining, running, finished } = useRestClock()
   const navigate = useNavigate()
 
   useEffect(() => {
@@ -28,6 +32,9 @@ export function ActiveWorkoutBar() {
       const local = loadLocalSession(activeProfile.id)
       if (local?.session.completed) {
         clearLocalSession(activeProfile.id)
+      }
+      if (local?.restEndsAt && local.restEndsAt > Date.now()) {
+        setRestEndsAt(local.restEndsAt)
       }
 
       let open = null as Awaited<ReturnType<typeof workoutService.findActiveSession>>
@@ -51,7 +58,6 @@ export function ActiveWorkoutBar() {
         Date.now() - local.session.startedAt < MAX_WORKOUT_DURATION_MS
 
       if (localFresh && cloudOk) {
-        // Nuvem sem sessão aberta → snapshot local é fantasma (ex.: cancelou/finalizou e o app fechou no meio).
         try {
           const bundle = await workoutService.loadSessionBundle(local.session.id)
           if (!bundle || bundle.session.completed) {
@@ -69,7 +75,6 @@ export function ActiveWorkoutBar() {
       }
 
       if (localFresh && !cloudOk) {
-        // Offline: confia no aparelho.
         setMinimizedWorkout({ id: local.session.id, name: local.session.templateName })
         return
       }
@@ -83,7 +88,7 @@ export function ActiveWorkoutBar() {
     return () => {
       cancelled = true
     }
-  }, [activeProfile?.id, user?.id, setMinimizedWorkout])
+  }, [activeProfile?.id, user?.id, setMinimizedWorkout, setRestEndsAt])
 
   if (!workout) return null
 
@@ -93,11 +98,22 @@ export function ActiveWorkoutBar() {
       onClick={() => navigate(`/treino/${workout.id}`)}
       className="fixed inset-x-3 bottom-[5.75rem] z-30 flex items-center justify-between gap-3 rounded-2xl bg-accent px-4 py-3 text-left text-bg shadow-lg lg:bottom-6 lg:left-auto lg:right-8 lg:w-96"
     >
-      <span>
-        <span className="block text-[11px] font-semibold tracking-widest uppercase">Treino minimizado</span>
+      <span className="min-w-0">
+        <span className="block text-[11px] font-semibold tracking-widest uppercase">
+          {finished ? 'Timer terminou' : running ? 'Descanso' : 'Treino minimizado'}
+        </span>
         <span className="block font-display text-lg leading-tight">{workout.name}</span>
       </span>
-      <span className="shrink-0 text-sm font-semibold">Continuar</span>
+      <span className="shrink-0 text-right">
+        {running ? (
+          <>
+            <span className="block font-display text-2xl leading-none tabular-nums">{formatTimer(remaining)}</span>
+            <span className="mt-0.5 block text-sm font-semibold">Continuar</span>
+          </>
+        ) : (
+          <span className="text-sm font-semibold">Continuar</span>
+        )}
+      </span>
     </button>
   )
 }

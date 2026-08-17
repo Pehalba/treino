@@ -210,6 +210,8 @@ export type WorkoutTemplateExercise = {
   householdId: string
   templateId: string
   exerciseId: string
+  /** Nome neste treino. Tem prioridade sobre o catálogo partilhado da casa. */
+  exerciseName?: string
   order: number
   sets: number
   repMin: number

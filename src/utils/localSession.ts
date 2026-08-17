@@ -8,6 +8,7 @@ export type LocalWorkoutSnapshot = {
   sets: ExerciseSet[]
   currentExerciseId: string | null
   updatedAt: number
+  restEndsAt?: number | null
 }
 
 function key(profileId: string): string {
