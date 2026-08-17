@@ -10,6 +10,7 @@ import { withTimeout } from '@/utils/withTimeout'
 const DEFAULT_PROFILES: Array<{ name: string; avatar: ProfileAvatar }> = [
   { name: 'Pedro', avatar: 'pedro' },
   { name: 'Carol', avatar: 'carol' },
+  { name: 'Luiz', avatar: 'luiz' },
   { name: 'Convidado', avatar: 'guest' },
 ]
 
@@ -226,10 +227,13 @@ export const profileService = {
     await seedService.repairPlaceholderNames(user.householdId)
     const pedro = profiles.find((profile) => profile.name.trim().toLowerCase() === 'pedro')
     for (const profile of profiles) {
-      const isGuest = profile.name.trim().toLowerCase() === 'convidado'
-      if (isGuest && pedro && pedro.id !== profile.id) {
+      const key = profile.name.trim().toLowerCase()
+      const copiesPedro = key === 'convidado' || key === 'luiz'
+      if (copiesPedro && pedro && pedro.id !== profile.id) {
         await seedService.seedProfile(pedro.id, user.householdId)
-        await seedService.seedFromProfile(pedro.id, profile.id, user.householdId)
+        await seedService.seedFromProfile(pedro.id, profile.id, user.householdId, {
+          copyDiet: key === 'luiz',
+        })
       } else {
         await seedService.seedProfile(profile.id, user.householdId)
       }

@@ -229,10 +229,13 @@ export const nutritionService = {
     date?: string
     /** Multiplicador por item (ex.: 2 = dois ovos no lugar de 1). */
     itemMultipliers?: Record<string, number>
+    /** true se a pessoa tirou/acrescentou algo só neste registro. */
+    adjusted?: boolean
   }): Promise<FoodLog[]> {
-    if (params.meal.items.length === 0) return []
     const multipliers = params.itemMultipliers ?? {}
-    const scaled = params.meal.items.map((item) => {
+    const kept = params.meal.items.filter((item) => Math.max(0, multipliers[item.id] ?? 1) > 0)
+    if (kept.length === 0) return []
+    const scaled = kept.map((item) => {
       const factor = Math.max(0, multipliers[item.id] ?? 1)
       return {
         calories: item.calories * factor,
@@ -250,12 +253,15 @@ export const nutritionService = {
       }),
       { calories: 0, protein: 0, carbs: 0, fat: 0 },
     )
-    const adjusted = Object.values(multipliers).some((value) => value !== 1)
+    const changed =
+      params.adjusted === true ||
+      kept.length !== params.meal.items.length ||
+      Object.values(multipliers).some((value) => value !== 1)
     const log = await this.logFood({
       user: params.user,
       profile: params.profile,
       category: params.meal.category,
-      name: adjusted ? `${params.meal.name} (ajustado)` : params.meal.name,
+      name: changed ? `${params.meal.name} (ajustado)` : params.meal.name,
       calories: totals.calories,
       protein: totals.protein,
       carbs: totals.carbs,

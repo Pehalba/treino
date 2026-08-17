@@ -221,7 +221,7 @@ export function SettingsPage() {
       <Card className="mt-4">
         <h2 className="font-display text-lg">Perfis neste aparelho</h2>
         <p className="mt-2 text-sm text-muted">
-          Pedro, Carol e Convidado já vêm prontos. O convidado usa o mesmo treino do Pedro, com progresso separado.
+          Pedro, Carol, Luiz e Convidado já vêm prontos. Luiz começa com os treinos e a dieta do Pedro, mas o progresso é separado.
         </p>
         <Input className="mt-3" placeholder="Outro nome de perfil" value={newName} onChange={(e) => setNewName(e.target.value)} />
         <Button className="mt-3 w-full" variant="secondary" onClick={() => void createProfile()}>

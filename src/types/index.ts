@@ -119,7 +119,7 @@ export type AppConfig = {
   updatedAt: number
 }
 
-export const PROFILE_AVATARS = ['pedro', 'carol', 'guest'] as const
+export const PROFILE_AVATARS = ['pedro', 'carol', 'guest', 'luiz'] as const
 export type ProfileAvatar = (typeof PROFILE_AVATARS)[number]
 
 export const PROFILE_GOALS = ['bulking', 'cutting', 'maintain', 'recomp'] as const

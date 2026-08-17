@@ -17,10 +17,22 @@ import { loadDietCache } from '@/utils/dietCache'
 import { groupMealsByMenuCategory, mealMacroTotals, type DietMenuCategory } from '@/utils/dietMeals'
 import { formatGrams, formatKcal, parseLocaleNumber } from '@/utils/format'
 import { todayKey } from '@/utils/dates'
+import { Plus, Trash2 } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 
 type MealWithItems = DietMeal & { items: DietMealItem[] }
+
+type RegisterItem = {
+  id: string
+  foodName: string
+  quantityLabel: string
+  calories: number
+  protein: number
+  carbs: number
+  fat: number
+  extra: boolean
+}
 
 export function CaloriesPage() {
   const navigate = useNavigate()
@@ -33,7 +45,16 @@ export function CaloriesPage() {
   const [pickerOpen, setPickerOpen] = useState(false)
   const [pickerCategory, setPickerCategory] = useState<DietMenuCategory | null>(null)
   const [adjustMeal, setAdjustMeal] = useState<MealWithItems | null>(null)
+  const [registerItems, setRegisterItems] = useState<RegisterItem[]>([])
   const [multipliers, setMultipliers] = useState<Record<string, number>>({})
+  const [addItemOpen, setAddItemOpen] = useState(false)
+  const [addName, setAddName] = useState('')
+  const [addQty, setAddQty] = useState('')
+  const [addCalories, setAddCalories] = useState('')
+  const [addProtein, setAddProtein] = useState('')
+  const [addCarbs, setAddCarbs] = useState('')
+  const [addFat, setAddFat] = useState('')
+  const [addError, setAddError] = useState('')
   const [category, setCategory] = useState<MealCategory>('lunch')
   const [name, setName] = useState('')
   const [calories, setCalories] = useState('')
@@ -87,10 +108,10 @@ export function CaloriesPage() {
   const remaining = Math.max(0, goal - totals.calories)
 
   const adjustedTotals = useMemo(() => {
-    if (!adjustMeal) return { calories: 0, protein: 0, carbs: 0, fat: 0 }
-    return adjustMeal.items.reduce(
+    return registerItems.reduce(
       (acc, item) => {
         const factor = multipliers[item.id] ?? 1
+        if (factor <= 0) return acc
         return {
           calories: acc.calories + item.calories * factor,
           protein: acc.protein + item.protein * factor,
@@ -100,26 +121,130 @@ export function CaloriesPage() {
       },
       { calories: 0, protein: 0, carbs: 0, fat: 0 },
     )
-  }, [adjustMeal, multipliers])
+  }, [registerItems, multipliers])
 
   function openAdjust(meal: MealWithItems) {
     const next: Record<string, number> = {}
-    for (const item of meal.items) next[item.id] = 1
+    const items: RegisterItem[] = meal.items.map((item) => {
+      next[item.id] = 1
+      return {
+        id: item.id,
+        foodName: item.foodName,
+        quantityLabel: item.quantityLabel,
+        calories: item.calories,
+        protein: item.protein,
+        carbs: item.carbs,
+        fat: item.fat,
+        extra: false,
+      }
+    })
     setMultipliers(next)
+    setRegisterItems(items)
     setAdjustMeal(meal)
+    setAddItemOpen(false)
+    setAddError('')
+    setAddName('')
+    setAddQty('')
+    setAddCalories('')
+    setAddProtein('')
+    setAddCarbs('')
+    setAddFat('')
   }
 
-  async function confirmAdjustedMeal() {
-    if (!user || !activeProfile || !adjustMeal || adjustMeal.items.length === 0 || saving) return
-    setSaving(adjustMeal.id)
+  function removeRegisterItem(id: string) {
+    setRegisterItems((items) => items.filter((item) => item.id !== id))
+  }
+
+  function addRegisterItem() {
+    const kcal = parseLocaleNumber(addCalories)
+    const proteinValue = parseLocaleNumber(addProtein) ?? 0
+    const carbsValue = parseLocaleNumber(addCarbs) ?? 0
+    const fatValue = parseLocaleNumber(addFat) ?? 0
+    if (!addName.trim()) {
+      setAddError('Informe o nome do alimento.')
+      return
+    }
+    if (kcal == null || kcal < 0) {
+      setAddError('Informe as calorias.')
+      return
+    }
+    const id = `extra-${Date.now()}`
+    setRegisterItems((items) => [
+      ...items,
+      {
+        id,
+        foodName: addName.trim(),
+        quantityLabel: addQty.trim(),
+        calories: kcal,
+        protein: proteinValue,
+        carbs: carbsValue,
+        fat: fatValue,
+        extra: true,
+      },
+    ])
+    setMultipliers((prev) => ({ ...prev, [id]: 1 }))
+    setAddName('')
+    setAddQty('')
+    setAddCalories('')
+    setAddProtein('')
+    setAddCarbs('')
+    setAddFat('')
+    setAddError('')
+    setAddItemOpen(false)
+  }
+
+  async function registerAsIs(meal: MealWithItems) {
+    if (!user || !activeProfile || meal.items.length === 0 || saving) return
+    setSaving(meal.id)
     try {
       await nutritionService.logPlannedMeal({
         user,
         profile: activeProfile,
-        meal: adjustMeal,
+        meal,
+      })
+      setPickerOpen(false)
+      setPickerCategory(null)
+      show('Refeição registrada ✓')
+    } finally {
+      setSaving(null)
+    }
+  }
+
+  async function confirmAdjustedMeal() {
+    if (!user || !activeProfile || !adjustMeal || saving) return
+    const kept = registerItems.filter((item) => (multipliers[item.id] ?? 1) > 0)
+    if (kept.length === 0) return
+    setSaving(adjustMeal.id)
+    try {
+      const originalIds = new Set(adjustMeal.items.map((item) => item.id))
+      const adjusted =
+        kept.some((item) => item.extra) ||
+        kept.length !== adjustMeal.items.length ||
+        kept.some((item) => !originalIds.has(item.id))
+      await nutritionService.logPlannedMeal({
+        user,
+        profile: activeProfile,
+        meal: {
+          ...adjustMeal,
+          items: kept.map((item, order) => ({
+            id: item.id,
+            profileId: activeProfile.id,
+            householdId: activeProfile.householdId,
+            dietMealId: adjustMeal.id,
+            foodName: item.foodName,
+            calories: item.calories,
+            protein: item.protein,
+            carbs: item.carbs,
+            fat: item.fat,
+            quantityLabel: item.quantityLabel,
+            order,
+          })),
+        },
         itemMultipliers: multipliers,
+        adjusted,
       })
       setAdjustMeal(null)
+      setRegisterItems([])
       setPickerOpen(false)
       setPickerCategory(null)
       show('Refeição registrada ✓')
@@ -157,7 +282,7 @@ export function CaloriesPage() {
     <AppShell title="Calorias">
       <Toast message={message} />
       <p className="mb-4 text-sm text-muted">
-        Toque em Registrar, escolha o prato e ajuste as porções se comeu diferente da dieta.
+        Toque em Registrar, escolha o prato e ajuste só esta refeição se comeu diferente.
       </p>
       {loading ? (
         <Skeleton className="h-48" />
@@ -252,9 +377,21 @@ export function CaloriesPage() {
                             Como preparar
                           </Button>
                         ) : null}
-                        <Button size="xl" disabled={Boolean(saving)} onClick={() => openAdjust(meal)}>
-                          Registrar este prato
-                        </Button>
+                        <div className="grid grid-cols-2 gap-2">
+                          <Button
+                            variant="secondary"
+                            disabled={Boolean(saving)}
+                            onClick={() => openAdjust(meal)}
+                          >
+                            Ajustar
+                          </Button>
+                          <Button
+                            disabled={Boolean(saving)}
+                            onClick={() => void registerAsIs(meal)}
+                          >
+                            {saving === meal.id ? 'Salvando…' : 'Registro rápido'}
+                          </Button>
+                        </div>
                       </div>
                     </div>
                   )
@@ -294,21 +431,33 @@ export function CaloriesPage() {
         {adjustMeal ? (
           <>
             <p className="mb-4 text-sm text-muted">
-              1,0 = porção da dieta. Ex.: ovo em 2,0 registra dois ovos e recalcula as calorias.
+              Vale só para este registro. O prato da dieta continua igual.
             </p>
             <div className="space-y-4">
-              {adjustMeal.items.map((item) => {
+              {registerItems.map((item) => {
                 const factor = multipliers[item.id] ?? 1
                 return (
                   <div key={item.id} className="rounded-2xl bg-card2 p-3">
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
                         <p className="font-medium">{item.foodName}</p>
-                        <p className="mt-0.5 text-sm text-muted">{item.quantityLabel || 'Porção da dieta'}</p>
+                        <p className="mt-0.5 text-sm text-muted">
+                          {item.quantityLabel || (item.extra ? 'Item extra' : 'Porção da dieta')}
+                        </p>
                       </div>
-                      <p className="shrink-0 text-sm font-semibold tabular-nums">
-                        {formatKcal(item.calories * factor)}
-                      </p>
+                      <div className="flex shrink-0 items-start gap-2">
+                        <p className="text-sm font-semibold tabular-nums">
+                          {formatKcal(item.calories * factor)}
+                        </p>
+                        <button
+                          type="button"
+                          className="flex h-8 w-8 items-center justify-center rounded-xl text-danger"
+                          aria-label={`Excluir ${item.foodName}`}
+                          onClick={() => removeRegisterItem(item.id)}
+                        >
+                          <Trash2 size={16} />
+                        </button>
+                      </div>
                     </div>
                     <p className="mt-2 text-xs text-muted tabular-nums">
                       Prot {formatGrams(item.protein * factor)} · Carbo {formatGrams(item.carbs * factor)} · Gord{' '}
@@ -334,6 +483,39 @@ export function CaloriesPage() {
               })}
             </div>
 
+            {addItemOpen ? (
+              <div className="mt-4 space-y-3 rounded-2xl bg-card2 p-3">
+                <p className="text-sm font-medium">Alimento extra</p>
+                <Input placeholder="Nome (ex.: pão)" value={addName} onChange={(e) => setAddName(e.target.value)} />
+                <Input placeholder="Quantidade (opcional)" value={addQty} onChange={(e) => setAddQty(e.target.value)} />
+                <Input placeholder="Calorias" inputMode="decimal" value={addCalories} onChange={(e) => setAddCalories(e.target.value)} />
+                <div className="grid grid-cols-3 gap-2">
+                  <Input placeholder="Prot" inputMode="decimal" value={addProtein} onChange={(e) => setAddProtein(e.target.value)} />
+                  <Input placeholder="Carbo" inputMode="decimal" value={addCarbs} onChange={(e) => setAddCarbs(e.target.value)} />
+                  <Input placeholder="Gord" inputMode="decimal" value={addFat} onChange={(e) => setAddFat(e.target.value)} />
+                </div>
+                {addError ? <p className="text-sm text-danger">{addError}</p> : null}
+                <div className="grid grid-cols-2 gap-2">
+                  <Button onClick={addRegisterItem}>Incluir</Button>
+                  <Button variant="secondary" onClick={() => setAddItemOpen(false)}>
+                    Cancelar
+                  </Button>
+                </div>
+              </div>
+            ) : (
+              <Button
+                className="mt-4 w-full"
+                variant="secondary"
+                onClick={() => {
+                  setAddError('')
+                  setAddItemOpen(true)
+                }}
+              >
+                <Plus size={16} />
+                Adicionar item
+              </Button>
+            )}
+
             <div className="mt-5 rounded-2xl bg-card2 p-4">
               <p className="text-xs tracking-wide text-muted uppercase">Total a registrar</p>
               <p className="mt-1 font-display text-3xl text-accent">{Math.round(adjustedTotals.calories)}</p>
@@ -345,7 +527,11 @@ export function CaloriesPage() {
             </div>
 
             <div className="mt-4 grid grid-cols-1 gap-2">
-              <Button size="xl" disabled={Boolean(saving)} onClick={() => void confirmAdjustedMeal()}>
+              <Button
+                size="xl"
+                disabled={Boolean(saving) || registerItems.filter((item) => (multipliers[item.id] ?? 1) > 0).length === 0}
+                onClick={() => void confirmAdjustedMeal()}
+              >
                 {saving === adjustMeal.id ? 'Registrando…' : 'Confirmar registro'}
               </Button>
               <Button variant="secondary" disabled={Boolean(saving)} onClick={() => setAdjustMeal(null)}>

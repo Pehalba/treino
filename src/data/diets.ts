@@ -1033,7 +1033,7 @@ export const CAROL_DIET: DietPreset = {
 
 export function presetForProfile(name: string, avatar?: string | null): DietPreset | null {
   const key = (avatar || name).trim().toLowerCase()
-  if (key === 'pedro') return PEDRO_DIET
+  if (key === 'pedro' || key === 'luiz') return PEDRO_DIET
   if (key === 'carol') return CAROL_DIET
   return null
 }

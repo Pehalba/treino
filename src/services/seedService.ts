@@ -4,7 +4,7 @@ import { commitAll, patchMany } from '@/repositories/base'
 import { exerciseRepository } from '@/repositories/exerciseRepository'
 import { nutritionRepository } from '@/repositories/nutritionRepository'
 import { workoutRepository } from '@/repositories/workoutRepository'
-import type { DietMeal, DietMealItem, DietPlan, Exercise, ImportPayload, WorkoutTemplate, WorkoutTemplateExercise } from '@/types'
+import type { DietMeal, DietMealItem, DietPlan, DietSupplement, Exercise, ImportPayload, WorkoutTemplate, WorkoutTemplateExercise } from '@/types'
 import { newId } from '@/utils/ids'
 
 function seededKey(profileId: string): string {
@@ -177,7 +177,12 @@ export const seedService = {
     markSeeded(profileId)
   },
 
-  async seedFromProfile(sourceProfileId: string, targetProfileId: string, householdId: string): Promise<void> {
+  async seedFromProfile(
+    sourceProfileId: string,
+    targetProfileId: string,
+    householdId: string,
+    options: { copyDiet?: boolean } = {},
+  ): Promise<void> {
     if (alreadySeeded(targetProfileId)) return
     const existing = await workoutRepository.listTemplates(targetProfileId)
     if (existing.length > 0) {
@@ -217,9 +222,90 @@ export const seedService = {
     }
 
     const plans = await nutritionRepository.listPlans(targetProfileId)
-    if (plans.length === 0) docs.push(...this.dietDocs(targetProfileId, householdId))
+    if (plans.length === 0) {
+      if (options.copyDiet) {
+        const copied = await this.dietCopyDocs(sourceProfileId, targetProfileId, householdId)
+        docs.push(...copied)
+      } else {
+        docs.push(...this.dietDocs(targetProfileId, householdId))
+      }
+    }
     if (docs.length > 0) await commitAll(docs)
     markSeeded(targetProfileId)
+  },
+
+  async dietCopyDocs(
+    sourceProfileId: string,
+    targetProfileId: string,
+    householdId: string,
+  ): Promise<Array<{ collection: string; data: DietPlan | DietMeal | DietMealItem | DietSupplement }>> {
+    const sourcePlans = await nutritionRepository.listPlans(sourceProfileId)
+    const source =
+      sourcePlans.find((plan) => plan.isActive && !plan.archivedAt) ??
+      sourcePlans.find((plan) => !plan.archivedAt) ??
+      null
+    if (!source) return this.dietDocs(targetProfileId, householdId)
+
+    const [meals, items, supplements] = await Promise.all([
+      nutritionRepository.listMeals(source.id),
+      nutritionRepository.listMealItemsByProfile(sourceProfileId),
+      nutritionRepository.listSupplements(sourceProfileId).catch(() => [] as DietSupplement[]),
+    ])
+    const mealIds = new Set(meals.map((meal) => meal.id))
+    const plan: DietPlan = {
+      ...source,
+      id: newId(),
+      profileId: targetProfileId,
+      householdId,
+      isActive: true,
+      archivedAt: null,
+      createdAt: Date.now(),
+    }
+    const docs: Array<{ collection: string; data: DietPlan | DietMeal | DietMealItem | DietSupplement }> = [
+      { collection: 'dietPlans', data: plan },
+    ]
+    for (const meal of meals.filter((item) => item.active !== false && !item.archivedAt)) {
+      const copiedMeal: DietMeal = {
+        ...meal,
+        id: newId(),
+        profileId: targetProfileId,
+        householdId,
+        dietPlanId: plan.id,
+        archivedAt: null,
+        active: true,
+      }
+      docs.push({ collection: 'dietMeals', data: copiedMeal })
+      for (const item of items.filter(
+        (row) => row.dietMealId === meal.id && mealIds.has(row.dietMealId) && row.active !== false && !row.archivedAt,
+      )) {
+        docs.push({
+          collection: 'dietMealItems',
+          data: {
+            ...item,
+            id: newId(),
+            profileId: targetProfileId,
+            householdId,
+            dietMealId: copiedMeal.id,
+            archivedAt: null,
+            active: true,
+          },
+        })
+      }
+    }
+    for (const supplement of supplements) {
+      docs.push({
+        collection: 'dietSupplements',
+        data: {
+          ...supplement,
+          id: newId(),
+          profileId: targetProfileId,
+          householdId,
+          archivedAt: null,
+          active: true,
+        },
+      })
+    }
+    return docs
   },
 
   dietDocs(profileId: string, householdId: string): Array<{ collection: string; data: DietPlan | DietMeal | DietMealItem }> {

@@ -18,7 +18,7 @@ export function ProfilePickerPage() {
       <h1 className="mt-5 text-center font-display text-3xl font-semibold sm:text-5xl">Quem vai treinar?</h1>
       <p className="mt-3 text-center text-sm text-muted">Toque no perfil para entrar</p>
 
-      <ul className="mt-10 grid w-full max-w-sm grid-cols-3 items-start gap-2 sm:mt-14 sm:max-w-lg sm:gap-8">
+      <ul className="mt-10 grid w-full max-w-sm grid-cols-2 items-start gap-4 sm:mt-14 sm:max-w-lg sm:grid-cols-4 sm:gap-6">
         {profiles.map((profile) => {
           const selected = profile.id === activeProfile?.id
           return (

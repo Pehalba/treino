@@ -1,4 +1,4 @@
-import { Dumbbell, Heart, UserRound } from 'lucide-react'
+import { Dumbbell, Heart, UserRound, Zap } from 'lucide-react'
 import type { Profile } from '@/types'
 import { cn } from '@/utils/cn'
 import { resolveProfileAvatar } from '@/utils/profileAvatar'
@@ -15,6 +15,10 @@ const PRESETS = {
   guest: {
     icon: UserRound,
     className: 'bg-[#243044] text-[#9ec1ff]',
+  },
+  luiz: {
+    icon: Zap,
+    className: 'bg-[#3a2a12] text-[#ffc14a]',
   },
 } as const
 
