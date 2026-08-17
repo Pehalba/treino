@@ -11,7 +11,6 @@ import { Toast } from '@/components/ui/Toast'
 import { useFeedback } from '@/hooks/useFeedback'
 import { useSession } from '@/hooks/useSession'
 import { exerciseService } from '@/services/exerciseService'
-import { seedService } from '@/services/seedService'
 import { workoutEditorService } from '@/services/workoutEditorService'
 import { workoutService } from '@/services/workoutService'
 import {
@@ -54,7 +53,6 @@ export function WorkoutEditPage() {
     setLoading(true)
     setError('')
     try {
-      void seedService.repairPlaceholderNames(activeProfile.householdId)
       const [templates, exercises] = await Promise.all([
         workoutService.getTemplatesWithMeta(activeProfile.id, activeProfile.householdId),
         exerciseService.listByHousehold(activeProfile.householdId),
@@ -82,9 +80,16 @@ export function WorkoutEditPage() {
 
   async function saveName() {
     if (!user || !template) return
-    await workoutEditorService.updateTemplateName(template.id, name, user.id)
-    setTemplate({ ...template, name: name.trim() })
-    show()
+    const next = name.trim()
+    if (!next || next === template.name) return
+    try {
+      await workoutEditorService.updateTemplateName(template.id, next, user.id)
+      setTemplate({ ...template, name: next })
+      setName(next)
+      show()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Não foi possível salvar o nome.')
+    }
   }
 
   async function saveRow(
@@ -227,7 +232,12 @@ export function WorkoutEditPage() {
           <Card>
             <label className="text-sm text-muted">
               Nome do treino
-              <Input className="mt-1" value={name} onChange={(e) => setName(e.target.value)} />
+              <Input
+                className="mt-1"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                onBlur={() => void saveName()}
+              />
             </label>
             <Button className="mt-3 w-full" onClick={() => void saveName()}>
               Salvar nome

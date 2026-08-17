@@ -379,7 +379,7 @@ export function CaloriesPage() {
                         ) : null}
                         <div className="grid grid-cols-2 gap-2">
                           <Button
-                            variant="secondary"
+                            variant="outline"
                             disabled={Boolean(saving)}
                             onClick={() => openAdjust(meal)}
                           >

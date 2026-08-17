@@ -1,6 +1,6 @@
 import { PLACEHOLDER_DIET, PLACEHOLDER_EXERCISES, PLACEHOLDER_TEMPLATES } from '@/data/placeholders'
 import { exerciseImageByKey } from '@/data/exerciseImages'
-import { commitAll, patchMany } from '@/repositories/base'
+import { commitAll } from '@/repositories/base'
 import { exerciseRepository } from '@/repositories/exerciseRepository'
 import { nutritionRepository } from '@/repositories/nutritionRepository'
 import { workoutRepository } from '@/repositories/workoutRepository'
@@ -27,46 +27,7 @@ function markSeeded(profileId: string): void {
   }
 }
 
-function repairedNamesKey(householdId: string): string {
-  return `fit.repairedPlaceholderNames.v1.${householdId}`
-}
-
 export const seedService = {
-  /**
-   * Restaura nomes originais dos exercícios placeholder (ex.: Upper B → Supino inclinado com halteres)
-   * quando ainda batem pelo vídeo do YouTube do seed. Roda uma vez por household.
-   */
-  async repairPlaceholderNames(householdId: string): Promise<void> {
-    try {
-      if (localStorage.getItem(repairedNamesKey(householdId)) === '1') return
-    } catch {
-      /* continue */
-    }
-
-    const existing = await exerciseRepository.listByHousehold(householdId)
-    const patches: Array<{ collection: string; id: string; data: Record<string, unknown> }> = []
-
-    for (const placeholder of PLACEHOLDER_EXERCISES) {
-      if (!placeholder.youtubeUrl) continue
-      const match = existing.find((item) => item.youtubeUrl === placeholder.youtubeUrl)
-      if (match && match.name !== placeholder.name) {
-        patches.push({
-          collection: 'exercises',
-          id: match.id,
-          data: { name: placeholder.name },
-        })
-      }
-    }
-
-    if (patches.length > 0) await patchMany(patches)
-
-    try {
-      localStorage.setItem(repairedNamesKey(householdId), '1')
-    } catch {
-      /* ignore */
-    }
-  },
-
   async ensureHouseholdCatalog(householdId: string): Promise<Map<string, Exercise>> {
     const existing = await exerciseRepository.listByHousehold(householdId)
     if (existing.length > 0) {

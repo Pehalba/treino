@@ -224,7 +224,6 @@ export const profileService = {
   },
 
   async seedInBackground(user: UserRecord, profiles: Profile[]): Promise<void> {
-    await seedService.repairPlaceholderNames(user.householdId)
     const pedro = profiles.find((profile) => profile.name.trim().toLowerCase() === 'pedro')
     for (const profile of profiles) {
       const key = profile.name.trim().toLowerCase()
