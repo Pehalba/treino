@@ -33,6 +33,39 @@ export function profileSex(profile: Profile): DietSex {
   return 'male'
 }
 
+/** Dias na academia (1–7) → fator usado no gasto calórico estimado. */
+export const ACTIVITY_DAYS_OPTIONS = [1, 2, 3, 4, 5, 6, 7] as const
+export type ActivityDays = (typeof ACTIVITY_DAYS_OPTIONS)[number]
+
+const MULTIPLIER_BY_DAYS: Record<ActivityDays, number> = {
+  1: 1.2,
+  2: 1.375,
+  3: 1.45,
+  4: 1.5,
+  5: 1.6,
+  6: 1.725,
+  7: 1.9,
+}
+
+export function activityMultiplierFromDays(days: number): number {
+  const clamped = Math.min(7, Math.max(1, Math.round(days))) as ActivityDays
+  return MULTIPLIER_BY_DAYS[clamped]
+}
+
+export function activityDaysFromMultiplier(multiplier: number | null | undefined): ActivityDays {
+  if (multiplier == null || !(multiplier > 0)) return 4
+  let best: ActivityDays = 4
+  let bestDelta = Infinity
+  for (const days of ACTIVITY_DAYS_OPTIONS) {
+    const delta = Math.abs(MULTIPLIER_BY_DAYS[days] - multiplier)
+    if (delta < bestDelta) {
+      best = days
+      bestDelta = delta
+    }
+  }
+  return best
+}
+
 export function mifflinBmr(params: { sex: DietSex; weightKg: number; heightCm: number; ageYears: number }): number {
   const base = 10 * params.weightKg + 6.25 * params.heightCm - 5 * params.ageYears
   return params.sex === 'male' ? base + 5 : base - 161

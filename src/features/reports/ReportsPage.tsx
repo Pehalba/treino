@@ -13,8 +13,16 @@ import { workoutService } from '@/services/workoutService'
 import { progressService } from '@/services/progressService'
 import { useAppStore } from '@/store/appStore'
 import { MUSCLE_LABELS, MEAL_LABELS, REPORT_RANGES, type Exercise, type ExerciseSet, type FoodLog, type ReportRange, type WeightEntry, type WorkoutSession } from '@/types'
-import { formatDate, formatDuration, todayKey } from '@/utils/dates'
+import {
+  calendarMonthBounds,
+  formatDate,
+  formatDuration,
+  monthShortLabel,
+  monthTitle,
+  todayKey,
+} from '@/utils/dates'
 import { formatKcal, formatKg, formatNumber, formatPercent } from '@/utils/format'
+import { ChevronLeft, ChevronRight } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
@@ -28,8 +36,16 @@ const RANGE_LABELS: Record<ReportRange, string> = {
   custom: 'Personalizado',
 }
 
+type ReportMode = 'month' | 'period'
+
+const MONTH_INDEXES = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11] as const
+
 export function ReportsPage() {
   const { activeProfile } = useSession()
+  const now = new Date()
+  const [mode, setMode] = useState<ReportMode>('month')
+  const [year, setYear] = useState(now.getFullYear())
+  const [month, setMonth] = useState(now.getMonth())
   const [range, setRange] = useState<ReportRange>('30d')
   const [sessions, setSessions] = useState<WorkoutSession[]>([])
   const [sets, setSets] = useState<ExerciseSet[]>([])
@@ -85,11 +101,36 @@ export function ReportsPage() {
     void load()
   }, [activeProfile?.id])
 
-  const filter: ReportFilter = { range }
+  const currentYear = now.getFullYear()
+  const currentMonth = now.getMonth()
+  const canGoNextYear = year < currentYear
+
+  function selectMonth(nextMonth: number) {
+    if (year === currentYear && nextMonth > currentMonth) return
+    setMonth(nextMonth)
+  }
+
+  function shiftYear(delta: number) {
+    const next = year + delta
+    if (next > currentYear) return
+    setYear(next)
+    if (next === currentYear && month > currentMonth) setMonth(currentMonth)
+  }
+
+  const filter: ReportFilter = useMemo(() => {
+    if (mode === 'month') {
+      const bounds = calendarMonthBounds(year, month)
+      return { range: 'custom', from: bounds.from, to: bounds.to }
+    }
+    return { range }
+  }, [mode, year, month, range])
+
+  const periodTitle = mode === 'month' ? monthTitle(year, month) : `Últimos ${RANGE_LABELS[range]}`
+
   const general = useMemo(() => {
     if (!activeProfile) return null
     return reportService.general({ profile: activeProfile, sessions, sets, foodLogs: logs, weights, recordCount, filter })
-  }, [activeProfile, sessions, sets, logs, weights, recordCount, range])
+  }, [activeProfile, sessions, sets, logs, weights, recordCount, filter])
 
   const week = activeProfile ? reportService.thisWeekCount(sessions) : 0
   const weekly = activeProfile ? reportService.weeklyFrequency(sessions, activeProfile.weeklyWorkoutGoal) : []
@@ -100,7 +141,7 @@ export function ReportsPage() {
   const muscles = reportService.byMuscle(catalog, sets, sessions, filter)
   const calorieSeries = activeProfile ? reportService.calorieSeries(logs, activeProfile.calorieGoal, filter) : []
   const calorieSummary = activeProfile ? reportService.calorieSummary(logs, activeProfile, filter) : null
-  const adherence = reportService.dietAdherence(logs, meals, range === '7d' ? 7 : 7)
+  const adherence = reportService.dietAdherence(logs, meals, 7)
   const weightCal = reportService.weightVsCalories(weights, logs)
   const bulk = reportService.bulking({ weights, logs, sessions, sets })
   const selectedHistory = reportService.exerciseHistory(sets.filter((s) => s.exerciseId === exerciseId))
@@ -127,22 +168,86 @@ export function ReportsPage() {
 
   return (
     <AppShell title="Relatórios">
-      <div className="no-scrollbar mb-5 flex gap-2 overflow-x-auto">
-        {REPORT_RANGES.filter((r) => r !== 'custom').map((r) => (
+      <div className="mb-3 grid grid-cols-2 gap-2">
+        {(
+          [
+            { id: 'month' as const, label: 'Mês' },
+            { id: 'period' as const, label: 'Período' },
+          ] as const
+        ).map((item) => (
           <button
-            key={r}
+            key={item.id}
             type="button"
-            onClick={() => setRange(r)}
-            className={`shrink-0 rounded-full px-4 py-2 text-sm ${range === r ? 'bg-accent text-bg' : 'bg-card2 text-muted'}`}
+            onClick={() => setMode(item.id)}
+            className={`rounded-2xl px-4 py-2.5 text-sm font-semibold ${
+              mode === item.id ? 'bg-accent text-bg' : 'bg-card2 text-muted'
+            }`}
           >
-            {RANGE_LABELS[r]}
+            {item.label}
           </button>
         ))}
       </div>
 
+      {mode === 'month' ? (
+        <div className="mb-5 space-y-3">
+          <div className="flex items-center justify-between gap-3">
+            <button
+              type="button"
+              aria-label="Ano anterior"
+              className="rounded-xl bg-card2 p-2 text-ink"
+              onClick={() => shiftYear(-1)}
+            >
+              <ChevronLeft size={18} />
+            </button>
+            <p className="font-display text-lg">{year}</p>
+            <button
+              type="button"
+              aria-label="Próximo ano"
+              disabled={!canGoNextYear}
+              className="rounded-xl bg-card2 p-2 text-ink disabled:cursor-not-allowed disabled:opacity-40"
+              onClick={() => shiftYear(1)}
+            >
+              <ChevronRight size={18} />
+            </button>
+          </div>
+          <div className="no-scrollbar flex gap-2 overflow-x-auto">
+            {MONTH_INDEXES.map((index) => {
+              const disabled = year === currentYear && index > currentMonth
+              const selected = month === index
+              return (
+                <button
+                  key={index}
+                  type="button"
+                  disabled={disabled}
+                  onClick={() => selectMonth(index)}
+                  className={`shrink-0 rounded-full px-4 py-2 text-sm capitalize disabled:cursor-not-allowed disabled:opacity-35 ${
+                    selected ? 'bg-accent text-bg' : 'bg-card2 text-muted'
+                  }`}
+                >
+                  {monthShortLabel(index)}
+                </button>
+              )
+            })}
+          </div>
+        </div>
+      ) : (
+        <div className="no-scrollbar mb-5 flex gap-2 overflow-x-auto">
+          {REPORT_RANGES.filter((r) => r !== 'custom').map((r) => (
+            <button
+              key={r}
+              type="button"
+              onClick={() => setRange(r)}
+              className={`shrink-0 rounded-full px-4 py-2 text-sm ${range === r ? 'bg-accent text-bg' : 'bg-card2 text-muted'}`}
+            >
+              {RANGE_LABELS[r]}
+            </button>
+          ))}
+        </div>
+      )}
+
       <div className="grid gap-3 lg:grid-cols-2">
         <Card>
-          <h2 className="font-display text-lg">Últimos {RANGE_LABELS[range]}</h2>
+          <h2 className="font-display text-lg">{periodTitle}</h2>
           {general ? (
             <dl className="mt-3 grid grid-cols-2 gap-3 text-sm">
               <Item label="Treinos" value={`${general.workoutsDone} / ${general.workoutsPlanned}`} />

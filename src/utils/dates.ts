@@ -3,9 +3,11 @@ import {
   differenceInCalendarDays,
   eachDayOfInterval,
   endOfDay,
+  endOfMonth,
   format,
   parseISO,
   startOfDay,
+  startOfMonth,
   startOfWeek,
   subDays,
   subMonths,
@@ -53,6 +55,26 @@ export function formatTimer(totalSeconds: number): string {
 export function weekStart(date = new Date()): Date {
   // Semana começa no domingo — a meta semanal zera a cada domingo.
   return startOfWeek(date, { weekStartsOn: 0 })
+}
+
+/** Mês civil: do dia 1 ao último dia (ou até hoje, se for o mês atual). */
+export function calendarMonthBounds(year: number, monthIndex: number, now = new Date()): { from: Date; to: Date } {
+  const anchor = new Date(year, monthIndex, 1)
+  const from = startOfMonth(anchor)
+  const monthEnd = endOfMonth(anchor)
+  const isCurrentMonth = now.getFullYear() === year && now.getMonth() === monthIndex
+  const to = isCurrentMonth ? endOfDay(now) : endOfDay(monthEnd)
+  return { from, to }
+}
+
+export function monthShortLabel(monthIndex: number): string {
+  const raw = format(new Date(2024, monthIndex, 1), 'MMM', { locale: ptBR })
+  return raw.replace('.', '')
+}
+
+export function monthTitle(year: number, monthIndex: number): string {
+  const raw = format(new Date(year, monthIndex, 1), 'MMMM yyyy', { locale: ptBR })
+  return raw.charAt(0).toUpperCase() + raw.slice(1)
 }
 
 export function rangeToDates(
