@@ -513,18 +513,37 @@ export const workoutService = {
     current: WorkoutSessionExercise
     reason: SkipReason
   }): Promise<WorkoutSessionExercise | null> {
+    return this.leaveCurrentAndGoTo({ ...params, targetId: null })
+  },
+
+  /**
+   * Sai do exercício atual (pula hoje ou adia) e vai para o próximo da fila
+   * ou para um exercício escolhido na lista do treino.
+   */
+  async leaveCurrentAndGoTo(params: {
+    exercises: WorkoutSessionExercise[]
+    catalog: Exercise[]
+    current: WorkoutSessionExercise
+    reason: SkipReason
+    targetId?: string | null
+  }): Promise<WorkoutSessionExercise | null> {
+    const leaveStatus = params.reason === 'cannot_today' ? 'skipped' : 'deferred'
     await workoutRepository.updateSessionExercise(params.current.id, {
-      status: 'skipped',
+      status: leaveStatus,
       skipReason: params.reason,
     })
     const muscleByExerciseId = new Map(params.catalog.map((e) => [e.id, e.muscleGroup]))
     const decorated = withMuscle(
       params.exercises.map((item) =>
-        item.id === params.current.id ? { ...item, status: 'skipped' as const } : item,
+        item.id === params.current.id
+          ? { ...item, status: leaveStatus, skipReason: params.reason }
+          : item,
       ),
       muscleByExerciseId,
     )
-    const next = pickNextExercise(decorated, params.current.id, false)
+    const next = params.targetId
+      ? decorated.find((item) => item.id === params.targetId) ?? null
+      : pickNextExercise(decorated, params.current.id, params.reason === 'occupied')
     if (next) {
       await workoutRepository.updateSessionExercise(next.id, { status: 'active' })
     }

@@ -4,11 +4,11 @@ import { Modal } from '@/components/ui/Modal'
 import { ErrorState } from '@/components/ui/ErrorState'
 import { Skeleton } from '@/components/ui/Skeleton'
 import {
+  AfterSkipModal,
   ExerciseDone,
   ExerciseTimer,
-  OccupiedModal,
-  ReplaceModal,
   EditSetModal,
+  PickWorkoutExerciseModal,
   SetForm,
   SkipModal,
   TimerDoneModal,
@@ -67,8 +67,9 @@ export function WorkoutModePage() {
   const [videoOpen, setVideoOpen] = useState(false)
   const [imageOpen, setImageOpen] = useState(false)
   const [skipOpen, setSkipOpen] = useState(false)
-  const [occupiedOpen, setOccupiedOpen] = useState(false)
-  const [replaceOpen, setReplaceOpen] = useState(false)
+  const [pendingSkipReason, setPendingSkipReason] = useState<SkipReason | null>(null)
+  const [afterSkipOpen, setAfterSkipOpen] = useState(false)
+  const [pickExerciseOpen, setPickExerciseOpen] = useState(false)
   const [cancelOpen, setCancelOpen] = useState(false)
   const [cancelling, setCancelling] = useState(false)
   const leavingRef = useRef(false)
@@ -280,10 +281,27 @@ export function WorkoutModePage() {
     })
   }, [session, exercises, sets, currentId, activeProfile?.id, restEndsAt])
 
-  const alternatives = useMemo(() => {
-    if (!exercise) return []
-    return exerciseService.alternativesOf(exercise, catalog)
-  }, [exercise, catalog])
+  const pickableExercises = useMemo(() => {
+    if (!current) return []
+    return [...exercises]
+      .filter((row) => row.id !== current.id)
+      .sort((a, b) => a.order - b.order)
+      .map((row) => {
+        const fromCatalog = catalog.find((item) => item.id === row.exerciseId)
+        const name = row.exerciseName || fromCatalog?.name || 'Exercício'
+        const imageUrl = resolveExerciseImage({
+          name,
+          imageUrl: row.imageUrl || fromCatalog?.imageUrl,
+        })
+        const muscle = row.muscleGroup ?? fromCatalog?.muscleGroup ?? 'chest'
+        return {
+          row,
+          name,
+          imageUrl,
+          muscleLabel: MUSCLE_LABELS[muscle],
+        }
+      })
+  }, [catalog, current, exercises])
 
   function rememberLoad(nextWeight = weight, nextReps = reps) {
     if (!activeProfile || !current) return
@@ -525,37 +543,34 @@ export function WorkoutModePage() {
     advanceAfterExercise(current.id, nextExercises, sets)
   }
 
-  async function applySkip(reason: SkipReason) {
+  function applySkip(reason: SkipReason) {
     setSkipOpen(false)
-    if (reason === 'occupied') {
-      setOccupiedOpen(true)
-      return
-    }
-    if (reason === 'want_other') {
-      setReplaceOpen(true)
-      return
-    }
-    await skipToday()
+    setPendingSkipReason(reason)
+    setAfterSkipOpen(true)
   }
 
-  async function skipToday() {
-    if (!current) return
+  async function leaveCurrent(targetId?: string | null) {
+    if (!current || !pendingSkipReason) return
     setActionError('')
     try {
       rest.skip()
-      const next = await workoutService.skipAndGoNext({
+      const leaveStatus = pendingSkipReason === 'cannot_today' ? 'skipped' : 'deferred'
+      const next = await workoutService.leaveCurrentAndGoTo({
         exercises,
         catalog,
         current,
-        reason: 'cannot_today',
+        reason: pendingSkipReason,
+        targetId,
       })
       const moved = exercises.map((e) => {
-        if (e.id === current.id) return { ...e, status: 'skipped' as const, skipReason: 'cannot_today' as const }
+        if (e.id === current.id) return { ...e, status: leaveStatus, skipReason: pendingSkipReason }
         if (next && e.id === next.id) return { ...e, status: 'active' as const }
         return e
       })
       setExercises(moved)
-      setOccupiedOpen(false)
+      setAfterSkipOpen(false)
+      setPickExerciseOpen(false)
+      setPendingSkipReason(null)
       if (next) {
         setCurrentId(next.id)
         persistSnapshot(moved, sets, next.id)
@@ -563,61 +578,8 @@ export function WorkoutModePage() {
         await finish(moved)
       }
     } catch (err) {
-      setActionError(err instanceof Error ? err.message : 'Não foi possível pular o exercício.')
+      setActionError(err instanceof Error ? err.message : 'Não foi possível mudar de exercício.')
     }
-  }
-
-  async function defer(reason: SkipReason, preferDifferentMuscle: boolean) {
-    if (!current) return
-    const next = await workoutService.deferAndGoNext({
-      exercises,
-      catalog,
-      current,
-      reason,
-      preferDifferentMuscle,
-    })
-    const moved = exercises.map((e) => {
-      if (e.id === current.id) return { ...e, status: 'deferred' as const, skipReason: reason }
-      if (next && e.id === next.id) return { ...e, status: 'active' as const }
-      return e
-    })
-    setExercises(moved)
-    setOccupiedOpen(false)
-    if (next) {
-      setCurrentId(next.id)
-      persistSnapshot(moved, sets, next.id)
-    } else {
-      await finish(moved)
-    }
-  }
-
-  async function replace(ex: Exercise) {
-    if (!current) return
-    await workoutService.substituteExercise({
-      sessionExercise: current,
-      newExercise: ex,
-      onlyToday: true,
-    })
-    setExercises((items) =>
-      items.map((e) =>
-        e.id === current.id
-          ? {
-              ...e,
-              exerciseId: ex.id,
-              exerciseName: ex.name,
-              muscleGroup: ex.muscleGroup,
-              equipment: ex.equipment,
-                youtubeUrl: ex.youtubeUrl,
-                imageUrl: ex.imageUrl ?? '',
-              weightIncrement: ex.weightIncrement,
-              substituted: true,
-              substituteOnlyToday: true,
-            }
-          : e,
-      ),
-    )
-    setReplaceOpen(false)
-    setOccupiedOpen(false)
   }
 
   async function finishAsLastTime() {
@@ -1005,21 +967,27 @@ export function WorkoutModePage() {
         onSave={() => void saveTimer()}
       />
       <TimerDoneModal open={rest.finished} onClose={rest.clearFinished} />
-      <SkipModal open={skipOpen} onClose={() => setSkipOpen(false)} onReason={(r) => void applySkip(r)} />
-      <OccupiedModal
-        open={occupiedOpen}
-        onClose={() => setOccupiedOpen(false)}
-        onDefer={() => void defer('occupied', true)}
-        onReplace={() => {
-          setOccupiedOpen(false)
-          setReplaceOpen(true)
+      <SkipModal open={skipOpen} onClose={() => setSkipOpen(false)} onReason={(r) => applySkip(r)} />
+      <AfterSkipModal
+        open={afterSkipOpen}
+        onClose={() => {
+          setAfterSkipOpen(false)
+          setPendingSkipReason(null)
+        }}
+        onNext={() => void leaveCurrent(null)}
+        onChoose={() => {
+          setAfterSkipOpen(false)
+          setPickExerciseOpen(true)
         }}
       />
-      <ReplaceModal
-        open={replaceOpen}
-        onClose={() => setReplaceOpen(false)}
-        alternatives={alternatives}
-        onPick={(ex) => void replace(ex)}
+      <PickWorkoutExerciseModal
+        open={pickExerciseOpen}
+        onClose={() => {
+          setPickExerciseOpen(false)
+          setAfterSkipOpen(true)
+        }}
+        exercises={pickableExercises}
+        onPick={(id) => void leaveCurrent(id)}
       />
       <Modal open={cancelOpen} onClose={() => setCancelOpen(false)} title="Cancelar treino?">
         <p className="text-sm text-muted">

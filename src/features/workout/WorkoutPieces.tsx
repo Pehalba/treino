@@ -1,11 +1,19 @@
 import { Button } from '@/components/ui/Button'
 import { Modal } from '@/components/ui/Modal'
 import { NumberStepper } from '@/components/ui/NumberStepper'
-import { EQUIPMENT_LABELS, MUSCLE_LABELS, type Exercise, type ExerciseSet, type SkipReason } from '@/types'
+import {
+  EQUIPMENT_LABELS,
+  MUSCLE_LABELS,
+  type Exercise,
+  type ExerciseSet,
+  type SkipReason,
+  type WorkoutSessionExercise,
+} from '@/types'
 import { formatTimer } from '@/utils/dates'
 import { formatKg, formatNumber } from '@/utils/format'
 import { youtubeEmbedUrl, youtubeWatchUrl } from '@/utils/ids'
 import { repsPattern, workingWeight } from '@/utils/volume'
+import { useState } from 'react'
 import { cn } from '@/utils/cn'
 import { Pencil } from 'lucide-react'
 
@@ -347,6 +355,121 @@ export function SkipModal({
         </Button>
       </div>
     </Modal>
+  )
+}
+
+export function AfterSkipModal({
+  open,
+  onClose,
+  onNext,
+  onChoose,
+}: {
+  open: boolean
+  onClose: () => void
+  onNext: () => void
+  onChoose: () => void
+}) {
+  return (
+    <Modal open={open} onClose={onClose} title="O que fazer agora?">
+      <p className="mb-4 text-sm text-muted">
+        Este exercício fica de lado neste treino. Você pode ir para o próximo da fila ou escolher outro da lista.
+      </p>
+      <div className="space-y-2">
+        <Button className="w-full" size="xl" onClick={onNext}>
+          Seguir para o próximo exercício
+        </Button>
+        <Button className="w-full" variant="secondary" size="xl" onClick={onChoose}>
+          Escolher o exercício
+        </Button>
+        <Button className="w-full" variant="ghost" onClick={onClose}>
+          ✕ Cancelar
+        </Button>
+      </div>
+    </Modal>
+  )
+}
+
+export function PickWorkoutExerciseModal({
+  open,
+  onClose,
+  exercises,
+  onPick,
+}: {
+  open: boolean
+  onClose: () => void
+  exercises: Array<{
+    row: WorkoutSessionExercise
+    name: string
+    imageUrl?: string
+    muscleLabel: string
+  }>
+  onPick: (exerciseId: string) => void
+}) {
+  const [photo, setPhoto] = useState<{ url: string; title: string } | null>(null)
+
+  return (
+    <>
+      <Modal open={open} onClose={onClose} title="Escolher exercício">
+        {exercises.length === 0 ? (
+          <p className="text-sm text-muted">Não há outro exercício neste treino para fazer agora.</p>
+        ) : (
+          <div className="space-y-3">
+            {exercises.map((item) => {
+              const done = item.row.status === 'completed'
+              const skipped = item.row.status === 'skipped'
+              return (
+                <div key={item.row.id} className="rounded-2xl bg-card2 p-3">
+                  <div className="flex gap-3">
+                    {item.imageUrl ? (
+                      <button
+                        type="button"
+                        className="h-16 w-16 shrink-0 overflow-hidden rounded-xl bg-white"
+                        onClick={() => setPhoto({ url: item.imageUrl!, title: item.name })}
+                        aria-label={`Ver foto de ${item.name}`}
+                      >
+                        <img src={item.imageUrl} alt="" className="h-full w-full object-contain" />
+                      </button>
+                    ) : (
+                      <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-xl bg-card text-xs text-muted">
+                        Sem foto
+                      </div>
+                    )}
+                    <div className="min-w-0 flex-1">
+                      <p className="font-semibold leading-snug">{item.name}</p>
+                      <p className="mt-0.5 text-sm text-muted">{item.muscleLabel}</p>
+                      {done ? <p className="mt-1 text-xs text-accent">Já feito hoje</p> : null}
+                      {skipped ? <p className="mt-1 text-xs text-muted">Pulado hoje</p> : null}
+                    </div>
+                  </div>
+                  <div className="mt-3 grid grid-cols-2 gap-2">
+                    <Button
+                      variant="secondary"
+                      size="md"
+                      disabled={!item.imageUrl}
+                      onClick={() => item.imageUrl && setPhoto({ url: item.imageUrl, title: item.name })}
+                    >
+                      Ver foto
+                    </Button>
+                    <Button size="md" disabled={skipped} onClick={() => onPick(item.row.id)}>
+                      Fazer esse
+                    </Button>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        )}
+        <Button className="mt-4 w-full" variant="ghost" onClick={onClose}>
+          ← Voltar
+        </Button>
+      </Modal>
+      <ImageModal
+        url={photo?.url ?? ''}
+        open={Boolean(photo)}
+        onClose={() => setPhoto(null)}
+        title={photo?.title ?? 'Foto do exercício'}
+      />
+    </>
   )
 }
 
