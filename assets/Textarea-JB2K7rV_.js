@@ -1,0 +1,1 @@
+import{m as e,p as t}from"./Button-CqkGZiwT.js";var n=t();function r({className:t,...r}){return(0,n.jsx)(`textarea`,{className:e(`min-h-24 w-full rounded-2xl border border-line bg-card2 px-4 py-3 text-base text-ink outline-none placeholder:text-muted focus:border-accent`,t),...r})}export{r as t};

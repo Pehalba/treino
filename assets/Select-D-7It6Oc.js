@@ -1,0 +1,1 @@
+import{m as e,p as t}from"./Button-CqkGZiwT.js";var n=t();function r({className:t,children:r,...i}){return(0,n.jsx)(`select`,{className:e(`min-h-12 w-full rounded-2xl border border-line bg-card2 px-4 text-base text-ink outline-none focus:border-accent`,t),...i,children:r})}export{r as t};
