@@ -554,7 +554,7 @@ export function WorkoutModePage() {
     setActionError('')
     try {
       rest.skip()
-      const leaveStatus = pendingSkipReason === 'cannot_today' ? 'skipped' : 'deferred'
+      const leaveStatus = pendingSkipReason === 'cannot_today' ? ('skipped' as const) : ('deferred' as const)
       const next = await workoutService.leaveCurrentAndGoTo({
         exercises,
         catalog,
